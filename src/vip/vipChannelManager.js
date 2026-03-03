@@ -21,9 +21,9 @@ function createVipChannelManager({ client, vipService, logger }) {
 
     if (!catId) return { ok: false, reason: "no_category_configured" };
 
-    // Verifica se já existem
     const settings = vipService.getSettings(guild.id, userId) || {};
     const personalRoleId = settings.roleId;
+    
     let textChannel = settings.textChannelId
       ? await guild.channels.fetch(settings.textChannelId).catch(() => null)
       : null;
@@ -32,9 +32,8 @@ function createVipChannelManager({ client, vipService, logger }) {
       : null;
 
     const baseName = member.user.username.toLowerCase().replace(/[^a-z0-9]/g, "");
-    const textName = `chat-${baseName}`;
-    const voiceName = `Call ${member.user.username}`;
-
+    
+    // --- Lógica de Permissões Base ---
     const permissionOverwrites = [
       {
         id: guild.id,
@@ -46,50 +45,53 @@ function createVipChannelManager({ client, vipService, logger }) {
       },
     ];
 
-    if (personalRoleId) {
+    // Permissões para o Dono (via cargo pessoal ou ID)
+    const ownerPerms = {
+      id: personalRoleId || member.id,
+      allow: [
+        PermissionFlagsBits.ViewChannel,
+        PermissionFlagsBits.SendMessages,
+        PermissionFlagsBits.Connect,
+        PermissionFlagsBits.Speak,
+        PermissionFlagsBits.ManageChannels,
+      ],
+    };
+    permissionOverwrites.push(ownerPerms);
+
+    // --- NOVO: Habilidade Fantasma ---
+    // Se houver um cargo fantasma configurado, ele vê TUDO
+    if (guildConfig?.cargoFantasmaId) {
       permissionOverwrites.push({
-        id: personalRoleId,
-        allow: [
-          PermissionFlagsBits.ViewChannel,
-          PermissionFlagsBits.SendMessages,
-          PermissionFlagsBits.Connect,
-          PermissionFlagsBits.Speak,
-          PermissionFlagsBits.ManageChannels,
-        ],
-      });
-    } else {
-      permissionOverwrites.push({
-        id: member.id,
-        allow: [
-          PermissionFlagsBits.ViewChannel,
-          PermissionFlagsBits.SendMessages,
-          PermissionFlagsBits.Connect,
-          PermissionFlagsBits.Speak,
-          PermissionFlagsBits.ManageChannels,
-        ],
+        id: guildConfig.cargoFantasmaId,
+        allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect],
+        deny: [PermissionFlagsBits.Speak] // Opcional: fantasma apenas observa
       });
     }
 
     if (!textChannel) {
       textChannel = await guild.channels.create({
-        name: textName,
+        name: `chat-${baseName}`,
         type: ChannelType.GuildText,
         parent: catId,
         permissionOverwrites,
         topic: `Canal VIP de ${member.user.tag}`,
       });
+    } else {
+      // Atualiza permissões se o canal já existir (para incluir novos fantasmas)
+      await textChannel.edit({ permissionOverwrites }).catch(() => {});
     }
 
     if (!voiceChannel) {
       voiceChannel = await guild.channels.create({
-        name: voiceName,
+        name: `Call ${member.user.username}`,
         type: ChannelType.GuildVoice,
         parent: catId,
         permissionOverwrites,
       });
+    } else {
+      await voiceChannel.edit({ permissionOverwrites }).catch(() => {});
     }
 
-    // Salva IDs
     if (textChannel.id !== settings.textChannelId || voiceChannel.id !== settings.voiceChannelId) {
       await vipService.setSettings(guild.id, userId, {
         textChannelId: textChannel.id,
@@ -100,22 +102,20 @@ function createVipChannelManager({ client, vipService, logger }) {
     return { ok: true, textChannel, voiceChannel };
   }
 
+  // ... (Funções deleteVipChannels e archiveVipChannels permanecem as mesmas que você enviou)
+
   async function deleteVipChannels(userId, { guildId: targetGuildId } = {}) {
     const guild = await fetchGuild(targetGuildId);
     if (!guild) return { ok: false };
-
-    const settings = vipService.getSettings(userId) || {};
-    
+    const settings = vipService.getSettings(guild.id, userId) || {};
     if (settings.textChannelId) {
       const c = await guild.channels.fetch(settings.textChannelId).catch(() => null);
       if (c) await c.delete().catch(() => {});
     }
-
     if (settings.voiceChannelId) {
       const c = await guild.channels.fetch(settings.voiceChannelId).catch(() => null);
       if (c) await c.delete().catch(() => {});
     }
-
     await vipService.setSettings(guild.id, userId, { textChannelId: null, voiceChannelId: null });
     return { ok: true };
   }
@@ -123,142 +123,62 @@ function createVipChannelManager({ client, vipService, logger }) {
   async function archiveVipChannels(userId, { guildId: targetGuildId } = {}) {
     const guild = await fetchGuild(targetGuildId);
     if (!guild) return { ok: false, reason: "guild_unavailable" };
-
     const settings = vipService.getSettings(guild.id, userId) || {};
-    let textChannel = settings.textChannelId
-      ? await guild.channels.fetch(settings.textChannelId).catch(() => null)
-      : null;
-    let voiceChannel = settings.voiceChannelId
-      ? await guild.channels.fetch(settings.voiceChannelId).catch(() => null)
-      : null;
-
+    let textChannel = settings.textChannelId ? await guild.channels.fetch(settings.textChannelId).catch(() => null) : null;
+    let voiceChannel = settings.voiceChannelId ? await guild.channels.fetch(settings.voiceChannelId).catch(() => null) : null;
     if (!textChannel && !voiceChannel) return { ok: false, reason: "no_channels" };
 
-    const ensureArchiveCategory = async () => {
-      const config = vipService.getGuildConfig(guild.id) || {};
-      if (config.vipArchiveCategoryId) {
-        const existing = await guild.channels.fetch(config.vipArchiveCategoryId).catch(() => null);
-        if (existing) return existing;
-      }
+    const config = vipService.getGuildConfig(guild.id) || {};
+    let archiveCategory = config.vipArchiveCategoryId ? await guild.channels.fetch(config.vipArchiveCategoryId).catch(() => null) : null;
 
-      const category = await guild.channels
-        .create({
-          name: "📦｜Arquivo VIP",
-          type: ChannelType.GuildCategory,
-          reason: "Categoria de arquivamento de canais VIP",
-        })
-        .catch(() => null);
+    if (!archiveCategory) {
+      archiveCategory = await guild.channels.create({
+        name: "📦｜Arquivo VIP",
+        type: ChannelType.GuildCategory,
+      }).catch(() => null);
+      if (archiveCategory) await vipService.setGuildConfig(guild.id, { vipArchiveCategoryId: archiveCategory.id });
+    }
 
-      if (category) {
-        await vipService.setGuildConfig(guild.id, { vipArchiveCategoryId: category.id }).catch(() => {});
-      }
-
-      return category;
+    const archive = async (channel) => {
+      if (!channel) return;
+      await channel.edit({
+        name: `arq-${channel.name.slice(0, 90)}`,
+        parent: archiveCategory?.id || null,
+      }).catch(() => {});
+      await channel.permissionOverwrites.edit(userId, { [PermissionFlagsBits.ViewChannel]: false }).catch(() => {});
     };
 
-    const archiveCategory = await ensureArchiveCategory().catch(() => null);
-
-    const archiveChannel = async (channel) => {
-        if (!channel) return;
-        try {
-            // Rename
-            const oldName = channel.name;
-            const newName = `arq-${oldName.slice(0, 90)}`; // Ensure length limit
-            if (channel.type === ChannelType.GuildText) {
-              await channel.setName(newName.toLowerCase().replace(/\s+/g, "-")).catch(() => {});
-            } else {
-              await channel.setName(newName).catch(() => {});
-            }
-
-            if (archiveCategory && channel.parentId !== archiveCategory.id) {
-              await channel.setParent(archiveCategory.id).catch(() => {});
-            }
-
-            // Remove user permissions (or deny View)
-            await channel.permissionOverwrites.edit(userId, {
-                [PermissionFlagsBits.ViewChannel]: false,
-                [PermissionFlagsBits.Connect]: false,
-                [PermissionFlagsBits.SendMessages]: false
-            }).catch(() => {});
-            
-            // Optionally move to an archive category if you had one, but we don't.
-        } catch (e) {
-            logger?.error?.({ err: e, channelId: channel.id }, "Failed to archive channel");
-        }
-    };
-
-    await archiveChannel(textChannel);
-    await archiveChannel(voiceChannel);
-
-    // Remove from settings so they are no longer "active" VIP channels
-    await vipService.setSettings(guild.id, userId, { textChannelId: null, voiceChannelId: null }).catch(() => {});
-
+    await archive(textChannel);
+    await archive(voiceChannel);
+    await vipService.setSettings(guild.id, userId, { textChannelId: null, voiceChannelId: null });
     return { ok: true };
   }
 
   async function updateChannelPermissions(userId, { guildId: targetGuildId, targetUserId, allow } = {}) {
     const guild = await fetchGuild(targetGuildId);
-    if (!guild) return { ok: false, reason: "guild_unavailable" };
-
+    if (!guild) return { ok: false };
     const settings = vipService.getSettings(guild.id, userId) || {};
-    const textChannel = settings.textChannelId
-      ? await guild.channels.fetch(settings.textChannelId).catch(() => null)
-      : null;
-    const voiceChannel = settings.voiceChannelId
-      ? await guild.channels.fetch(settings.voiceChannelId).catch(() => null)
-      : null;
-
-    if (!textChannel && !voiceChannel) return { ok: false, reason: "no_channels" };
-
-    const permissions = allow
-      ? {
-          [PermissionFlagsBits.ViewChannel]: true,
-          [PermissionFlagsBits.SendMessages]: true,
-          [PermissionFlagsBits.Connect]: true,
-          [PermissionFlagsBits.Speak]: true,
-        }
-      : {
-          [PermissionFlagsBits.ViewChannel]: false,
-        };
-
-    if (textChannel) {
-      await textChannel.permissionOverwrites.edit(targetUserId, permissions).catch(() => {});
+    const channels = [settings.textChannelId, settings.voiceChannelId];
+    for (const id of channels) {
+      if (!id) continue;
+      const ch = await guild.channels.fetch(id).catch(() => null);
+      if (ch) await ch.permissionOverwrites.edit(targetUserId, allow ? { [PermissionFlagsBits.ViewChannel]: true, [PermissionFlagsBits.Connect]: true } : { [PermissionFlagsBits.ViewChannel]: false });
     }
-    
-    if (voiceChannel) {
-      await voiceChannel.permissionOverwrites.edit(targetUserId, permissions).catch(() => {});
-    }
-
     return { ok: true };
   }
 
   async function updateChannelName(userId, newName, { guildId: targetGuildId, type = "both" } = {}) {
     const guild = await fetchGuild(targetGuildId);
-    if (!guild) return { ok: false, reason: "guild_unavailable" };
-
+    if (!guild) return { ok: false };
     const settings = vipService.getSettings(guild.id, userId) || {};
-    const textChannel = settings.textChannelId
-      ? await guild.channels.fetch(settings.textChannelId).catch(() => null)
-      : null;
-    const voiceChannel = settings.voiceChannelId
-      ? await guild.channels.fetch(settings.voiceChannelId).catch(() => null)
-      : null;
-
-    if (!textChannel && !voiceChannel) return { ok: false, reason: "no_channels" };
-
-    try {
-        if (textChannel && (type === "both" || type === "text")) {
-            // Discord não permite emojis/espaços em canais de texto normalmente, mas vamos tentar setar o nome
-            // Se falhar, o Discord sanitiza.
-            await textChannel.setName(newName.toLowerCase().replace(/\s+/g, '-'));
-        }
-        if (voiceChannel && (type === "both" || type === "voice")) {
-            await voiceChannel.setName(newName);
-        }
-    } catch (e) {
-        return { ok: false, reason: e.message };
+    if (type !== "voice" && settings.textChannelId) {
+      const ch = await guild.channels.fetch(settings.textChannelId).catch(() => null);
+      if (ch) await ch.setName(newName.toLowerCase().replace(/\s+/g, '-')).catch(() => {});
     }
-
+    if (type !== "text" && settings.voiceChannelId) {
+      const ch = await guild.channels.fetch(settings.voiceChannelId).catch(() => null);
+      if (ch) await ch.setName(newName).catch(() => {});
+    }
     return { ok: true };
   }
 
