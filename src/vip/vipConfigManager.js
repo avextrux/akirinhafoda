@@ -25,6 +25,7 @@ function createVipConfigManager() {
       // Cria o esqueleto do Tier se não existir
       configs[guildId][tierId] = {
         ...(configs[guildId][tierId] || {}),
+        id: tierId,
         roleId,
         name: roleName,
         daily_bonus: 0,
@@ -35,7 +36,11 @@ function createVipConfigManager() {
         canCall: false,
         chat_privado: false,
         hasCustomRole: false,
-        high_quality_voice: false
+        high_quality_voice: false,
+        shop_enabled: (configs[guildId][tierId]?.shop_enabled ?? null),
+        shop_price_per_day: (configs[guildId][tierId]?.shop_price_per_day ?? null),
+        shop_fixed_price: (configs[guildId][tierId]?.shop_fixed_price ?? null),
+        shop_default_days: (configs[guildId][tierId]?.shop_default_days ?? null)
       };
 
       saveConfigs(configs);
@@ -52,7 +57,10 @@ function createVipConfigManager() {
 
     async getTierConfig(guildId, tierId) {
       const configs = getConfigs();
-      return configs[guildId]?.[tierId] || null;
+      const tier = configs[guildId]?.[tierId] || null;
+      if (!tier) return null;
+      if (!tier.id) return { ...tier, id: tierId };
+      return tier;
     },
 
     async getGuildTiers(guildId) {

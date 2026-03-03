@@ -11,6 +11,23 @@ module.exports = {
     ),
 
   async execute(interaction) {
+    // Comando mantido por compatibilidade: fluxo oficial agora é via /shop
+    // (não remove nada do código antigo para não quebrar integrações)
+    try {
+      const dias = interaction.options.getInteger("dias");
+      return interaction.reply({
+        embeds: [createEmbed({
+          title: "🛒 Compra de VIP",
+          description: `A compra de VIP foi unificada no comando **/shop**.\n\nUse:\n- \`/shop vip\` para ver os planos\n- \`/shop buy item:vip_days quantity:${dias}\` para comprar por dias`,
+          color: 0x3498db,
+          user: interaction.user,
+        })],
+        ephemeral: true,
+      });
+    } catch {
+      // segue o fluxo antigo abaixo
+    }
+
     const economyService = interaction.client.services.economy;
     const vipConfig = interaction.client.services.vipConfig;
     const guildId = interaction.guildId;
@@ -36,7 +53,11 @@ module.exports = {
       const options = [];
       for (const [tierId, tierData] of Object.entries(tiers)) {
         const tierConfig = await vipConfig.getTierConfig(guildId, tierId);
-        const unit = tierConfig?.preco_shop ?? tierData.preco_shop ?? tierData.price ?? 0;
+        if (!tierConfig) continue;
+        if (tierConfig.shop_enabled === false) continue;
+        const unit = (Number.isFinite(tierConfig.shop_price_per_day)
+          ? tierConfig.shop_price_per_day
+          : (tierConfig?.preco_shop ?? tierData.preco_shop ?? tierData.price ?? 0));
         const precoTotal = unit * dias;
         const podeComprar = coins >= precoTotal;
         
@@ -147,6 +168,12 @@ module.exports = {
           components: []
         });
       }
+      if (tierConfig.shop_enabled === false) {
+        return await interaction.update({
+          embeds: [createErrorEmbed('Este plano VIP não está disponível para compra no bot.')],
+          components: []
+        });
+      }
 
       // Verificar saldo
       const balance = await economyService.getBalance(guildId, userId);
@@ -170,7 +197,8 @@ module.exports = {
       // Adicionar VIP
       await vipService.addVip(guildId, userId, {
         days: parseInt(dias),
-        tierId: tierId
+        tierId: tierId,
+        source: "shop"
       });
 
       // Log da compra automática

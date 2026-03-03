@@ -1,8 +1,25 @@
-function createVipService({ store, logger, configManager }) {
+function createVipService({ store, logger, configManager, client }) {
   let state = { vips: {}, settings: {}, guilds: {} };
+  let hooks = { onAdd: [], onRemove: [], onExpire: [] };
 
   async function init() {
     state = await store.load() || { vips: {}, settings: {}, guilds: {} };
+  }
+
+  function addHook(type, fn) {
+    if (!hooks[type]) hooks[type] = [];
+    hooks[type].push(fn);
+  }
+
+  async function runHooks(type, payload) {
+    if (!hooks[type]) return;
+    for (const fn of hooks[type]) {
+      try {
+        await fn(payload);
+      } catch (err) {
+        logger?.error?.({ err, type }, "Hook execution failed");
+      }
+    }
   }
 
   async function getMemberTier(member) {
@@ -20,22 +37,43 @@ function createVipService({ store, logger, configManager }) {
     return validTiers.sort((a, b) => b.preco_shop - a.preco_shop)[0] || null;
   }
 
-  async function addVip(guildId, userId, { days, tierId }) {
+  async function addVip(guildId, userId, payload = {}) {
     state.vips[guildId] = state.vips[guildId] || {};
     const now = Date.now();
-    const expiresAt = days ? now + (days * 24 * 60 * 60 * 1000) : null;
 
-    state.vips[guildId][userId] = { userId, guildId, tierId, expiresAt, addedAt: now };
+    const tierId = payload.tierId;
+    const days = typeof payload.days === "number" ? payload.days : null;
+    const expiresAt = typeof payload.expiresAt === "number"
+      ? payload.expiresAt
+      : (days ? now + (days * 24 * 60 * 60 * 1000) : null);
+
+    const source = payload.source || "manual";
+    const addedBy = payload.addedBy || null;
+
+    state.vips[guildId][userId] = { userId, guildId, tierId, expiresAt, addedAt: now, addedBy };
     await store.save(state);
-    return state.vips[guildId][userId];
+    const entry = state.vips[guildId][userId];
+
+    // Hooks: onAdd
+    await runHooks("onAdd", { guildId, userId, entry, tierId, source });
+
+    return entry;
   }
 
   // ... (Manter funções de Dama/Settings que você já tinha)
 
   return { 
-    init, getMemberTier, addVip, 
+    init, getMemberTier, addVip, addHook,
     getVip: (gid, uid) => state.vips?.[gid]?.[uid],
-    removeVip: async (gid, uid) => { delete state.vips?.[gid]?.[uid]; await store.save(state); },
+    listVipIds: (gid) => Object.keys(state.vips?.[gid] || {}),
+    getTierConfig: (gid, tierId) => configManager.getTierConfig(gid, tierId),
+    removeVip: async (gid, uid) => { 
+      const removed = state.vips?.[gid]?.[uid];
+      delete state.vips?.[gid]?.[uid]; 
+      await store.save(state); 
+      if (removed) await runHooks("onRemove", { guildId: gid, userId: uid, entry: removed });
+      return { removed: !!removed, vip: removed };
+    },
     getGuildConfig: (gid) => state.guilds[gid] || {},
     setGuildConfig: async (gid, patch) => { state.guilds[gid] = {...(state.guilds[gid]||{}), ...patch}; await store.save(state); },
     getFullVipReport: async (gid) => ({ activeVips: Object.values(state.vips[gid] || {}) }),
