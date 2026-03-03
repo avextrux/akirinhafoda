@@ -62,9 +62,23 @@ function createVipService({ store, logger, configManager, client }) {
 
   // ... (Manter funções de Dama/Settings que você já tinha)
 
+  async function getVipData(guildId, userId) {
+    const entry = state.vips?.[guildId]?.[userId] || null;
+    if (!entry) return null;
+    const settings = state.settings?.[guildId]?.[userId] || {};
+    return {
+      ...entry,
+      ...settings,
+      tierId: entry.tierId || null,
+      expiresAt: typeof entry.expiresAt === "number" ? entry.expiresAt : null,
+      vipsDados: Array.isArray(settings.vipsDados) ? settings.vipsDados : [],
+    };
+  }
+
   return { 
     init, getMemberTier, addVip, addHook,
     getVip: (gid, uid) => state.vips?.[gid]?.[uid],
+    getVipData,
     listVipIds: (gid) => Object.keys(state.vips?.[gid] || {}),
     getTierConfig: (gid, tierId) => configManager.getTierConfig(gid, tierId),
     removeVip: async (gid, uid) => { 
