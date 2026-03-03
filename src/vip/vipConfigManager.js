@@ -1,55 +1,66 @@
-const { createDataStore } = require("../store/dataStore");
-const vipConfigStore = createDataStore("vipConfig.json");
+const fs = require('fs');
+const path = require('path');
 
 function createVipConfigManager() {
-  async function getGuildTiers(guildId) {
-    const data = await vipConfigStore.load();
-    return data[guildId] || {};
+  const configPath = path.join(__dirname, '../../data/vipConfigs.json');
+
+  // Garante que o arquivo de config existe
+  if (!fs.existsSync(path.dirname(configPath))) fs.mkdirSync(path.dirname(configPath), { recursive: true });
+  if (!fs.existsSync(configPath)) fs.writeFileSync(configPath, JSON.stringify({}));
+
+  function getConfigs() {
+    return JSON.parse(fs.readFileSync(configPath, 'utf8'));
   }
 
-  async function getTierConfig(guildId, tierId) {
-    const tiers = await getGuildTiers(guildId);
-    const raw = tiers[tierId];
-    if (!raw) return null;
-
-    const benefits = raw.benefits || {};
-    const eco = benefits.economy || {};
-    const soc = benefits.social || {};
-    const tec = benefits.tech || {};
-
-    return {
-      id: tierId,
-      name: raw.name ?? tierId.toUpperCase(),
-      roleId: raw.roleId ?? null,
-      preco_shop: Number(eco.preco_shop ?? 0),
-      valor_daily_extra: Number(eco.valor_daily_extra ?? 0),
-      mao_de_midas: Boolean(eco.mao_de_midas ?? false),
-      limite_familia: Number(soc.limite_familia ?? 0),
-      vips_para_dar: Number(soc.vips_para_dar ?? 0),
-      tipo_cota: soc.tipo_cota ?? null,
-      fantasma: Boolean(tec.fantasma ?? false),
-      hasSecondRole: Boolean(tec.hasSecondRole ?? false),
-      criar_call_vip: Boolean(tec.criar_call_vip ?? false)
-    };
+  function saveConfigs(data) {
+    fs.writeFileSync(configPath, JSON.stringify(data, null, 2));
   }
 
-  async function updateTierBenefits(guildId, tierId, category, patch) {
-    await vipConfigStore.update(guildId, (current = {}) => {
-      if (!current[tierId]) current[tierId] = { benefits: { economy: {}, social: {}, tech: {} } };
-      if (!current[tierId].benefits) current[tierId].benefits = { economy: {}, social: {}, tech: {} };
-      current[tierId].benefits[category] = { ...current[tierId].benefits[category], ...patch };
-      return current;
-    });
-  }
+  return {
+    // ESSA ERA A FUNÇÃO FALTANTE:
+    async setBase(guildId, tierId, roleId, roleName) {
+      const configs = getConfigs();
+      if (!configs[guildId]) configs[guildId] = {};
+      
+      // Cria o esqueleto do Tier se não existir
+      configs[guildId][tierId] = {
+        ...(configs[guildId][tierId] || {}),
+        roleId,
+        name: roleName,
+        daily_bonus: 0,
+        midas: false,
+        vagas_familia: 0,
+        primeiras_damas: 0,
+        cotaRoleId: null,
+        canCall: false,
+        chat_privado: false,
+        hasCustomRole: false,
+        high_quality_voice: false
+      };
 
-  async function setGuildTier(guildId, tierId, tierData) {
-    await vipConfigStore.update(guildId, (current = {}) => {
-      current[tierId] = { ...(current[tierId] || {}), ...tierData };
-      return current;
-    });
-  }
+      saveConfigs(configs);
+    },
 
-  return { getGuildTiers, getTierConfig, setGuildTier, updateTierBenefits };
+    async updateTier(guildId, tierId, type, data) {
+      const configs = getConfigs();
+      if (!configs[guildId]?.[tierId]) return;
+
+      // Mescla os dados dependendo da categoria (eco, soc, tec)
+      configs[guildId][tierId] = { ...configs[guildId][tierId], ...data };
+      saveConfigs(configs);
+    },
+
+    async getTierConfig(guildId, tierId) {
+      const configs = getConfigs();
+      return configs[guildId]?.[tierId] || null;
+    },
+
+    async getGuildTiers(guildId) {
+      const configs = getConfigs();
+      return configs[guildId] || {};
+    }
+  };
 }
 
 module.exports = { createVipConfigManager };
+

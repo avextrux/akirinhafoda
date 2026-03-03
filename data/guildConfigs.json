@@ -1,5 +1,15 @@
 {
   "722253176283070506": {
-    "logsChannelId": "1475142643188109577"
+    "logsChannelId": "1475142643188109577",
+    "vipRoleId": null,
+    "vipCategoryId": null,
+    "vipArchiveCategoryId": null,
+    "familyCategoryId": null,
+    "vipSeparatorRoleId": null,
+    "familySeparatorRoleId": null,
+    "personalSeparatorRoleId": null,
+    "authorizedVipStaff": null,
+    "ticketCategoryId": null,
+    "ticketChannelId": null
   }
 }
