@@ -5,150 +5,62 @@ module.exports = {
   data: new SlashCommandBuilder()
     .setName("economy")
     .setDescription("Comandos de economia")
-    .addSubcommand((sub) =>
-      sub
-        .setName("balance")
-        .setDescription("Verifica seu saldo ou de outro usuário")
-        .addUserOption((opt) => opt.setName("usuario").setDescription("Usuário (opcional)").setRequired(false))
-    )
-    .addSubcommand((sub) =>
-      sub
-        .setName("work")
-        .setDescription("Trabalha para ganhar moedas")
-    )
-    .addSubcommand((sub) =>
-      sub
-        .setName("daily")
-        .setDescription("Resgata seu bônus diário")
-    )
-    .addSubcommand((sub) =>
-      sub
-        .setName("pay")
-        .setDescription("Transfere moedas para outro usuário")
-        .addUserOption((opt) => opt.setName("usuario").setDescription("Destinatário").setRequired(true))
-        .addIntegerOption((opt) => opt.setName("quantidade").setDescription("Valor a transferir").setMinValue(1).setRequired(true))
-    )
-    .addSubcommand((sub) =>
-        sub.setName("add").setDescription("Adiciona moedas (Admin)").addUserOption(opt => opt.setName("usuario").setDescription("Usuário").setRequired(true)).addIntegerOption(opt => opt.setName("quantidade").setDescription("Valor").setRequired(true))
-    )
-    .addSubcommand((sub) =>
-        sub.setName("remove").setDescription("Remove moedas (Admin)").addUserOption(opt => opt.setName("usuario").setDescription("Usuário").setRequired(true)).addIntegerOption(opt => opt.setName("quantidade").setDescription("Valor").setRequired(true))
-    ),
+    .addSubcommand(sub => sub.setName("balance").setDescription("Verifica seu saldo").addUserOption(opt => opt.setName("usuario").setDescription("Usuário (opcional)")))
+    .addSubcommand(sub => sub.setName("work").setDescription("Trabalha para ganhar moedas"))
+    .addSubcommand(sub => sub.setName("daily").setDescription("Resgata seu bônus diário"))
+    .addSubcommand(sub => sub.setName("pay").setDescription("Transfere moedas").addUserOption(opt => opt.setName("usuario").setRequired(true)).addIntegerOption(opt => opt.setName("quantidade").setMinValue(1).setRequired(true)))
+    .addSubcommand(sub => sub.setName("add").setDescription("Adiciona moedas (Admin)").addUserOption(opt => opt.setName("usuario").setRequired(true)).addIntegerOption(opt => opt.setName("quantidade").setRequired(true)))
+    .addSubcommand(sub => sub.setName("remove").setDescription("Remove moedas (Admin)").addUserOption(opt => opt.setName("usuario").setRequired(true)).addIntegerOption(opt => opt.setName("quantidade").setRequired(true))),
 
   async execute(interaction) {
     const sub = interaction.options.getSubcommand();
-    const economyService = interaction.client.services.economy;
-    const vipService = interaction.client.services.vip;
-    const userId = interaction.user.id;
-    const guildId = interaction.guildId;
+    const { economy: eco, vip: vipService } = interaction.client.services;
+    const { guildId, user } = interaction;
 
-    if (!economyService) {
-        return interaction.reply({ content: "Serviço de economia indisponível.", ephemeral: true });
-    }
-
-    // BALANCE
     if (sub === "balance") {
-      const user = interaction.options.getUser("usuario") || interaction.user;
-      const balance = await economyService.getBalance(guildId, user.id);
-      
-      await interaction.reply({ 
-          embeds: [createEmbed({
-              title: `💰 Saldo de ${user.username}`,
-              fields: [
-                  { name: "Carteira", value: `${balance.coins || 0} 🪙`, inline: true },
-                  { name: "Banco", value: `${balance.bank || 0} 🏦`, inline: true }
-              ],
-              color: 0xF1C40F // Gold
-          })] 
-      });
+      const target = interaction.options.getUser("usuario") || user;
+      const bal = await eco.getBalance(guildId, target.id);
+      return interaction.reply({ embeds: [createEmbed({ title: `💰 Saldo de ${target.username}`, fields: [{ name: "Carteira", value: `${bal.coins || 0} 🪙`, inline: true }, { name: "Banco", value: `${bal.bank || 0} 🏦`, inline: true }], color: 0xF1C40F })] });
     }
 
-    // WORK
     if (sub === "work") {
-      const data = await economyService.getBalance(guildId, userId);
-      const lastWork = data.lastWork || 0;
-      const cooldown = 60 * 60 * 1000; // 1 hora
-      const now = Date.now();
-      
-      if (now - lastWork < cooldown) {
-          const remaining = Math.ceil((cooldown - (now - lastWork)) / 1000 / 60);
-          return interaction.reply({ embeds: [createErrorEmbed(`Você precisa descansar! Tente novamente em ${remaining} minutos.`)], ephemeral: true });
-      }
-      
-      const earnings = Math.floor(Math.random() * 200) + 50; // 50-250 coins
-      await economyService.work(guildId, userId, earnings);
-
-      await interaction.reply({ 
-          embeds: [createSuccessEmbed(`Você trabalhou duro e ganhou **${earnings} 🪙**!`)] 
-      });
+      const data = await eco.getBalance(guildId, user.id);
+      if (Date.now() - (data.lastWork || 0) < 3600000) return interaction.reply({ embeds: [createErrorEmbed("Descanse um pouco! Volte em 1 hora.")], ephemeral: true });
+      const gain = Math.floor(Math.random() * 200) + 50;
+      await eco.work(guildId, user.id, gain);
+      return interaction.reply({ embeds: [createSuccessEmbed(`Você ganhou **${gain} 🪙**!`)] });
     }
 
-    // DAILY
     if (sub === "daily") {
-      const data = await economyService.getBalance(guildId, userId);
-      const lastDaily = data.lastDaily || 0;
-      const cooldown = 24 * 60 * 60 * 1000; // 24 horas
-      const now = Date.now();
-      
-      if (now - lastDaily < cooldown) {
-          const remaining = Math.ceil((cooldown - (now - lastDaily)) / 1000 / 60 / 60);
-          return interaction.reply({ embeds: [createErrorEmbed(`Você já pegou seu prêmio hoje! Volte em ${remaining} horas.`)], ephemeral: true });
-      }
+      const data = await eco.getBalance(guildId, user.id);
+      if (Date.now() - (data.lastDaily || 0) < 86400000) return interaction.reply({ embeds: [createErrorEmbed("Você já resgatou seu daily hoje!")], ephemeral: true });
       
       const base = 500;
-      let extra = 0;
-      try {
-        const tier = vipService?.getUserTierConfig ? await vipService.getUserTierConfig({ guildId, member: interaction.member }) : null;
-        extra = tier?.valor_daily_extra ? Number(tier.valor_daily_extra) : 0;
-        if (!Number.isFinite(extra) || extra < 0) extra = 0;
-      } catch {
-        extra = 0;
-      }
+      const tier = await vipService.getMemberTier(interaction.member);
+      const extra = tier?.valor_daily_extra || 0;
+      const mult = tier?.mao_de_midas ? 2 : 1;
+      const total = base + (extra * mult);
 
-      const earnings = base + extra;
-      await economyService.daily(guildId, userId, earnings);
-
-      await interaction.reply({ 
-          embeds: [createSuccessEmbed(`Você resgatou seu prêmio diário de **${earnings} 🪙**!`)] 
-      });
+      await eco.daily(guildId, user.id, total);
+      let msg = `Você resgatou **${total} 🪙**!`;
+      if (tier?.mao_de_midas) msg += "\n✨ **Mão de Midas:** Seu bônus VIP foi dobrado!";
+      return interaction.reply({ embeds: [createSuccessEmbed(msg)] });
     }
 
-    // PAY
     if (sub === "pay") {
       const target = interaction.options.getUser("usuario");
       const amount = interaction.options.getInteger("quantidade");
-      
-      if (target.id === userId) {
-          return interaction.reply({ embeds: [createErrorEmbed("Você não pode pagar a si mesmo.")], ephemeral: true });
-      }
-      
-      const success = await economyService.transfer(guildId, userId, target.id, amount);
-      
-      if (!success) {
-          return interaction.reply({ embeds: [createErrorEmbed(`Saldo insuficiente!`)], ephemeral: true });
-      }
-      
-      await interaction.reply({ 
-          embeds: [createSuccessEmbed(`Você enviou **${amount} 🪙** para ${target}!`)] 
-      });
+      if (target.id === user.id) return interaction.reply({ embeds: [createErrorEmbed("Auto-pagamento negado.")], ephemeral: true });
+      const ok = await eco.transfer(guildId, user.id, target.id, amount);
+      return interaction.reply(ok ? { embeds: [createSuccessEmbed(`Enviado **${amount} 🪙** para ${target}!`)] } : { embeds: [createErrorEmbed("Saldo insuficiente.")], ephemeral: true });
     }
-    
-    // ADMIN COMMANDS
+
     if (sub === "add" || sub === "remove") {
-        if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
-             return interaction.reply({ embeds: [createErrorEmbed("Apenas administradores podem usar isso.")], ephemeral: true });
-        }
-        
-        const target = interaction.options.getUser("usuario");
-        const amount = interaction.options.getInteger("quantidade");
-        
-        if (sub === "add") {
-            await economyService.addCoins(guildId, target.id, amount);
-            await interaction.reply({ embeds: [createSuccessEmbed(`Adicionado **${amount} 🪙** para ${target}.`)] });
-        } else {
-            await economyService.removeCoins(guildId, target.id, amount);
-            await interaction.reply({ embeds: [createSuccessEmbed(`Removido **${amount} 🪙** de ${target}.`)] });
-        }
+      if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) return interaction.reply({ embeds: [createErrorEmbed("Sem permissão.")], ephemeral: true });
+      const target = interaction.options.getUser("usuario");
+      const amount = interaction.options.getInteger("quantidade");
+      sub === "add" ? await eco.addCoins(guildId, target.id, amount) : await eco.removeCoins(guildId, target.id, amount);
+      return interaction.reply({ embeds: [createSuccessEmbed(`Alterado **${amount} 🪙** de ${target}.`)] });
     }
-  },
+  }
 };
