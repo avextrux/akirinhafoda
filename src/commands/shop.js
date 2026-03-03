@@ -99,16 +99,16 @@ module.exports = {
               { name: "catalog", value: "catalog" }
             )
         )
-        .addStringOption((opt) =>
-          opt.setName("id")
-            .setDescription("ID do item do catálogo (quando item=catalog)")
-            .setRequired(false)
-        )
         .addIntegerOption((opt) => 
           opt.setName("quantity")
             .setDescription("Quantidade")
             .setMinValue(1)
             .setRequired(true)
+        )
+        .addStringOption((opt) =>
+          opt.setName("id")
+            .setDescription("ID do item do catálogo (quando item=catalog)")
+            .setRequired(false)
         )
     ),
 
