@@ -61,11 +61,15 @@ module.exports = {
         const precoTotal = unit * dias;
         const podeComprar = coins >= precoTotal;
         
+        const tierName = (tierData.name || tierId).substring(0, 80);
+        const precoTotalStr = `${precoTotal} WDA Coins`;
+        const label = `${tierName} - ${precoTotalStr}`.substring(0, 100);
+        
         options.push(
           new StringSelectMenuOptionBuilder()
-            .setLabel(`${tierData.name || tierId} - ${precoTotal} WDA Coins`)
+            .setLabel(label)
             .setValue(`${tierId}_${dias}_${precoTotal}`)
-            .setDescription(`${dias} dias - ${podeComprar ? '✅ Saldo suficiente' : '❌ Saldo insuficiente'}`)
+            .setDescription(`${dias} dias - ${podeComprar ? '✅ Saldo suficiente' : '❌ Saldo insuficiente'}`.substring(0, 100))
             .setEmoji(podeComprar ? '💎' : '🚫')
         );
       }

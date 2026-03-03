@@ -42,7 +42,7 @@ async function renderCatalogPage({ interaction, shopService, guildId, page = 0 }
     .addOptions(
       slice.map((i) =>
         new StringSelectMenuOptionBuilder()
-          .setLabel(`${i.id} - ${i.priceCoins} 🪙`)
+          .setLabel(`${i.id} - ${i.priceCoins} 🪙`.substring(0, 80))
           .setValue(i.id)
       )
     );
@@ -186,7 +186,7 @@ module.exports = {
         .addOptions(
           tierEntries.slice(0, 25).map((t) =>
             new StringSelectMenuOptionBuilder()
-              .setLabel(`${t.name || t.id}`)
+              .setLabel((t.name || t.id).substring(0, 80))
               .setValue(t.id)
           )
         );
@@ -337,7 +337,7 @@ module.exports = {
           .addOptions(
             tierEntries.slice(0, 25).map((t) =>
               new StringSelectMenuOptionBuilder()
-                .setLabel(`${t.name || t.id} - ${t.shop_price_per_day} 🪙/dia`)
+                .setLabel(`${t.name || t.id} - ${t.shop_price_per_day} 🪙/dia`.substring(0, 80))
                 .setValue(t.id)
             )
           );

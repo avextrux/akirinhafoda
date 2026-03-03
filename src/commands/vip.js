@@ -25,7 +25,7 @@ module.exports = {
     .addSubcommand(s => s.setName("info").setDescription("Ver benefícios ativos"))
     .addSubcommand(s => s.setName("call").setDescription("Mudar nome da call").addStringOption(o => o.setName("nome").setDescription("Novo nome").setRequired(true)))
     .addSubcommand(s => s.setName("dar").setDescription("Dar VIP da sua cota").addUserOption(o => o.setName("membro").setDescription("Quem recebe").setRequired(true)))
-    .addSubcommand(s => s.setName("customizar").setDescription("Editar cargo pessoal").addStringOption(o => o.setName("nome")).addStringOption(o => o.setName("cor"))),
+    .addSubcommand(s => s.setName("customizar").setDescription("Editar cargo pessoal").addStringOption(o => o.setName("nome").setDescription("Nome do cargo (opcional)")).addStringOption(o => o.setName("cor").setDescription("Cor em hex (opcional)"))),
 
   async execute(interaction) {
     const { vip: vipService, vipRole, vipChannel } = interaction.client.services;

@@ -327,7 +327,7 @@ module.exports = {
 
     const enabledInput = new TextInputBuilder()
       .setCustomId("shop_enabled")
-      .setLabel("Habilitar compra no bot? (1=sim, 0=não, vazio=auto)")
+      .setLabel("Habilitar compra? (1=sim, 0=não, vazio=auto)")
       .setStyle(TextInputStyle.Short)
       .setRequired(false)
       .setValue(tier.shop_enabled === true ? "1" : (tier.shop_enabled === false ? "0" : ""));
@@ -341,14 +341,14 @@ module.exports = {
 
     const fixedPriceInput = new TextInputBuilder()
       .setCustomId("shop_fixed_price")
-      .setLabel("Preço fixo do plano (moedas). Vazio para não usar")
+      .setLabel("Preço fixo (moedas). Vazio para não usar")
       .setStyle(TextInputStyle.Short)
       .setRequired(false)
       .setValue(Number.isFinite(tier.shop_fixed_price) ? String(tier.shop_fixed_price) : "");
 
     const defaultDaysInput = new TextInputBuilder()
       .setCustomId("shop_default_days")
-      .setLabel("Dias padrão se preço fixo (ex: 30). Vazio=usar tier.days")
+      .setLabel("Dias padrão preço fixo (ex: 30). Vazio=usar tier.days")
       .setStyle(TextInputStyle.Short)
       .setRequired(false)
       .setValue(Number.isFinite(tier.shop_default_days) ? String(tier.shop_default_days) : "");
