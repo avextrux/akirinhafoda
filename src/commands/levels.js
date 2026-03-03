@@ -277,17 +277,30 @@ module.exports = {
       const totalMensagens = data.messages || 0;
       const totalVoiceMs = data.voiceMs || 0;
       const totalMinutos = Math.floor(totalVoiceMs / 60000);
+      const totalHoras = Math.floor(totalMinutos / 60);
+      const minutosRestantes = totalMinutos % 60;
+
+      // Formatar tempo de call de forma mais legível
+      let tempoFormatado;
+      if (totalHoras > 0) {
+        tempoFormatado = `${totalHoras}h ${minutosRestantes}min`;
+      } else if (totalMinutos > 0) {
+        tempoFormatado = `${totalMinutos} min`;
+      } else {
+        tempoFormatado = "Nenhum";
+      }
 
       return interaction.reply({
         embeds: [
           createEmbed({
             title: `🌟 Nível de ${user.username}`,
             fields: [
-              { name: "Nível", value: `${data.level}`, inline: true },
-              { name: "XP Total", value: `${data.totalXp || 0}`, inline: true },
-              { name: "Progresso", value: `${data.xp}/${xpNeeded} XP\n${bar}` },
-              { name: "Mensagens", value: `${totalMensagens}`, inline: true },
-              { name: "Tempo em call", value: `${totalMinutos} min`, inline: true },
+              { name: "📊 Nível", value: `${data.level}`, inline: true },
+              { name: "💎 XP Total", value: `${data.totalXp || 0}`, inline: true },
+              { name: "📈 Progresso", value: `${data.xp}/${xpNeeded} XP\n${bar}` },
+              { name: "💬 Mensagens", value: `${totalMensagens.toLocaleString('pt-BR')}`, inline: true },
+              { name: "🎤 Tempo em Call", value: tempoFormatado, inline: true },
+              { name: "📝 Estatísticas", value: `🏆 Rank: #${Object.entries(levels).filter(([id, d]) => (d.totalXp || 0) > (data.totalXp || 0)).length + 1}`, inline: false },
             ],
             thumbnail: user.displayAvatarURL(),
             color: 0x9b59b6,
