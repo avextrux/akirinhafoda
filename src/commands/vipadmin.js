@@ -1,13 +1,7 @@
-const {
-  SlashCommandBuilder,
-  PermissionFlagsBits,
-  ChannelType,
-  ActionRowBuilder,
-  StringSelectMenuBuilder,
-  ModalBuilder,
-  TextInputBuilder,
-  TextInputStyle,
-  EmbedBuilder
+const { 
+    SlashCommandBuilder, PermissionFlagsBits, ActionRowBuilder, 
+    StringSelectMenuBuilder, ModalBuilder, TextInputBuilder, 
+    TextInputStyle, EmbedBuilder, ChannelType 
 } = require("discord.js");
 const { createSuccessEmbed, createErrorEmbed } = require("../embeds");
 
@@ -16,83 +10,111 @@ module.exports = {
     .setName("vipadmin")
     .setDescription("Administração total do sistema VIP")
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
-    .addSubcommand(s => s.setName("list").setDescription("Lista Tiers e VIPs ativos"))
-    .addSubcommand(s =>
-      s.setName("tier")
-        .setDescription("Configura um Tier VIP (interativo)")
-        .addStringOption(o => o.setName("id").setDescription("ID do Tier (ex: classic)").setRequired(true))
-        .addRoleOption(o => o.setName("cargo").setDescription("Cargo do Tier").setRequired(true))
-    )
-    .addSubcommand(s =>
-        s.setName("setup")
-          .setDescription("Configura infraestrutura VIP")
-          .addRoleOption(o => o.setName("cargo_fantasma").setDescription("Cargo com habilidade de ver canais bloqueados"))
-          // ... (outras opções de setup que você já tinha podem ser mantidas aqui)
-    ),
+    // --- SUBCOMANDO: TIER ---
+    .addSubcommand(s => s.setName("tier").setDescription("Configura um tipo de VIP (ex: black, gold)")
+        .addStringOption(o => o.setName("id").setDescription("ID do VIP (ex: black)").setRequired(true))
+        .addRoleOption(o => o.setName("cargo").setDescription("Cargo deste VIP").setRequired(true)))
+    // --- SUBCOMANDO: SETUP (INFRAESTRUTURA) ---
+    .addSubcommand(s => s.setName("setup").setDescription("Configura a infraestrutura do servidor")
+        .addRoleOption(o => o.setName("cargo_base").setDescription("Cargo VIP principal (geral)"))
+        .addRoleOption(o => o.setName("cargo_fantasma").setDescription("Cargo que vê canais bloqueados"))
+        .addChannelOption(o => o.setName("categoria_vip").setDescription("Onde os canais VIP serão criados").addChannelTypes(ChannelType.GuildCategory))
+        .addRoleOption(o => o.setName("sep_vip").setDescription("Cargo separador de VIPs"))),
 
   async execute(interaction) {
-    const { vip: vipService, vipConfig } = interaction.client.services;
+    const { vipConfig } = interaction.client.services;
     const sub = interaction.options.getSubcommand();
 
-    if (sub === "list") {
-      const { tiers, activeVips } = await vipService.getFullVipReport(interaction.guildId);
-      const embed = new EmbedBuilder().setTitle("📊 Painel VIP").setColor("#5865F2");
+    if (sub === "setup") {
+        const data = {
+            vipRoleId: interaction.options.getRole("cargo_base")?.id,
+            cargoFantasmaId: interaction.options.getRole("cargo_fantasma")?.id,
+            vipCategoryId: interaction.options.getChannel("categoria_vip")?.id,
+            personalSeparatorRoleId: interaction.options.getRole("sep_vip")?.id
+        };
 
-      const tierText = Object.entries(tiers).map(([id, data]) => {
-          const b = data.benefits || {};
-          return `• **${id.toUpperCase()}**: <@&${data.roleId}>\n  └ 💰 Preço: \`${b.economy?.preco_shop || 0}\` | ✨ Midas: \`${b.economy?.mao_de_midas ? 'Sim' : 'Não'}\` | 🎁 Cotas: \`${b.social?.vips_para_dar || 0}x ${b.social?.tipo_cota || 'N/A'}\``;
-      }).join('\n\n') || "Sem tiers.";
-
-      embed.addFields({ name: "💎 Configurações", value: tierText });
-      return interaction.reply({ embeds: [embed], ephemeral: true });
+        // Salva as configurações globais do servidor no banco
+        await interaction.client.services.vip.setGuildConfig(interaction.guildId, data);
+        return interaction.reply({ embeds: [createSuccessEmbed("✅ Configuração de infraestrutura salva com sucesso!")], ephemeral: true });
     }
 
     if (sub === "tier") {
       const id = interaction.options.getString("id").toLowerCase();
       const role = interaction.options.getRole("cargo");
-
-      // Inicializa o tier se não existir
+      
       await vipConfig.setGuildTier(interaction.guildId, id, { roleId: role.id, name: role.name });
 
       const menu = new StringSelectMenuBuilder()
         .setCustomId(`vipadmin_tier_category_${interaction.guildId}_${id}`)
-        .setPlaceholder("O que deseja configurar?")
+        .setPlaceholder("O que deseja configurar neste VIP?")
         .addOptions(
-          { label: "💰 Economia (Shop/Daily/Midas)", value: "economy", emoji: "💰" },
-          { label: "👥 Social (Família/Damas/Cotas)", value: "social", emoji: "👥" },
-          { label: "⚡ Técnico (Fantasma/Perms)", value: "tech", emoji: "⚡" }
+          { label: "💰 Economia (Daily/Midas)", value: "economy", emoji: "💰" },
+          { label: "👥 Social (Cotas/Família)", value: "social", emoji: "👥" },
+          { label: "⚡ Técnico (Fantasma/Call)", value: "tech", emoji: "⚡" }
         );
 
-      return interaction.reply({
-        embeds: [createSuccessEmbed(`Configurando Tier: **${id}**\nSelecione a categoria abaixo:`)],
-        components: [new ActionRowBuilder().addComponents(menu)],
-        ephemeral: true
+      return interaction.reply({ 
+        content: `### 🛠️ Configurando VIP: **${id.toUpperCase()}**\nSelecione uma categoria abaixo para definir os benefícios específicos.`, 
+        components: [new ActionRowBuilder().addComponents(menu)], 
+        ephemeral: true 
       });
     }
   },
 
+  // --- HANDLER DO MENU DE SELEÇÃO ---
   async handleSelectMenu(interaction) {
     const [,,, guildId, tierId] = interaction.customId.split("_");
     const category = interaction.values[0];
 
     if (category === "economy") {
-      const modal = new ModalBuilder().setCustomId(`vip_modal_eco_${guildId}_${tierId}`).setTitle(`Economia: ${tierId}`);
+      const modal = new ModalBuilder().setCustomId(`vipadmin_mod_eco_${guildId}_${tierId}`).setTitle(`Economia: ${tierId}`);
       modal.addComponents(
-        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("preco_shop").setLabel("Preço na Loja").setStyle(TextInputStyle.Short).setPlaceholder("Ex: 50000")),
-        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("daily_fixo").setLabel("Bônus Daily Fixo").setStyle(TextInputStyle.Short).setPlaceholder("Ex: 1000")),
-        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("midas").setLabel("Mão de Midas? (sim/nao)").setStyle(TextInputStyle.Short).setMaxLength(3))
+        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("daily").setLabel("Bônus Daily Fixo").setStyle(TextInputStyle.Short).setPlaceholder("Ex: 1000")),
+        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("midas").setLabel("Mão de Midas? (sim/nao)").setStyle(TextInputStyle.Short).setMaxLength(3).setPlaceholder("Digite 'sim' para dobrar o bônus"))
       );
       return interaction.showModal(modal);
     }
 
     if (category === "social") {
-      const modal = new ModalBuilder().setCustomId(`vip_modal_soc_${guildId}_${tierId}`).setTitle(`Social: ${tierId}`);
-      modal.addComponents(
-        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("limite_familia").setLabel("Vagas Família").setStyle(TextInputStyle.Short)),
-        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("vips_para_dar").setLabel("Qtd de brindes (Cotas)").setStyle(TextInputStyle.Short).setPlaceholder("Ex: 2")),
-        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("tipo_cota").setLabel("Qual VIP ele pode dar?").setStyle(TextInputStyle.Short).setPlaceholder("Ex: classic"))
-      );
-      return interaction.showModal(modal);
+        const modal = new ModalBuilder().setCustomId(`vipadmin_mod_soc_${guildId}_${tierId}`).setTitle(`Social: ${tierId}`);
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("familia").setLabel("Vagas na Família").setStyle(TextInputStyle.Short).setPlaceholder("Ex: 5")),
+          new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("vips_dar").setLabel("Qtd de VIPs para dar (Cotas)").setStyle(TextInputStyle.Short).setPlaceholder("Ex: 2")),
+          new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("tipo_cota").setLabel("Qual ID do VIP ele pode dar?").setStyle(TextInputStyle.Short).setPlaceholder("Ex: classic"))
+        );
+        return interaction.showModal(modal);
+    }
+  },
+
+  // --- HANDLER DOS MODAIS (SALVAMENTO) ---
+  async handleModal(interaction) {
+    const { vipConfig } = interaction.client.services;
+    const parts = interaction.customId.split("_");
+    const guildId = parts[3];
+    const tierId = parts[4];
+
+    if (interaction.customId.startsWith("vipadmin_mod_eco_")) {
+        const daily = interaction.fields.getTextInputValue("daily");
+        const midas = interaction.fields.getTextInputValue("midas").toLowerCase() === "sim";
+
+        await vipConfig.updateTierBenefits(guildId, tierId, "economy", {
+            valor_daily_extra: parseInt(daily) || 0,
+            mao_de_midas: midas
+        });
+        return interaction.reply({ content: `✅ Economia do VIP **${tierId}** salva!`, ephemeral: true });
+    }
+
+    if (interaction.customId.startsWith("vipadmin_mod_soc_")) {
+        const familia = interaction.fields.getTextInputValue("familia");
+        const cotas = interaction.fields.getTextInputValue("vips_dar");
+        const tipo = interaction.fields.getTextInputValue("tipo_cota");
+
+        await vipConfig.updateTierBenefits(guildId, tierId, "social", {
+            limite_familia: parseInt(familia) || 0,
+            vips_para_dar: parseInt(cotas) || 0,
+            tipo_cota: tipo
+        });
+        return interaction.reply({ content: `✅ Benefícios sociais do VIP **${tierId}** salvos!`, ephemeral: true });
     }
   }
 };
