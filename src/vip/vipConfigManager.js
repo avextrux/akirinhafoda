@@ -1,5 +1,4 @@
 const { createDataStore } = require("../store/dataStore");
-
 const vipConfigStore = createDataStore("vipConfig.json");
 
 function createVipConfigManager() {
@@ -14,66 +13,63 @@ function createVipConfigManager() {
     const tiers = await getGuildTiers(guildId);
     const raw = tiers[tierId];
     if (!raw) return null;
-    const limits = raw.limits || {};
+
     const benefits = raw.benefits && typeof raw.benefits === "object" ? raw.benefits : {};
-    const economy = benefits.economy && typeof benefits.economy === "object" ? benefits.economy : {};
-    const social = benefits.social && typeof benefits.social === "object" ? benefits.social : {};
-    const tech = benefits.tech && typeof benefits.tech === "object" ? benefits.tech : {};
+    const economy = benefits.economy || {};
+    const social = benefits.social || {};
+    const tech = benefits.tech || {};
 
-    const precoShop = Number.isFinite(raw.preco_shop) ? raw.preco_shop : (Number.isFinite(economy.preco_shop) ? economy.preco_shop : 0);
-    const bonusInicial = Number.isFinite(raw.bonus_inicial) ? raw.bonus_inicial : (Number.isFinite(economy.bonus_inicial) ? economy.bonus_inicial : 0);
-    const dailyExtra = Number.isFinite(raw.valor_daily_extra)
-      ? raw.valor_daily_extra
-      : (Number.isFinite(economy.valor_daily_extra) ? economy.valor_daily_extra : 0);
+    // --- Lógica de Prioridade (Valores do benefício ou da raiz do objeto) ---
+    const precoShop = economy.preco_shop ?? raw.preco_shop ?? 0;
+    const bonusInicial = economy.bonus_inicial ?? raw.bonus_inicial ?? 0;
+    const dailyExtra = economy.valor_daily_extra ?? raw.valor_daily_extra ?? 0;
+    const maoDeMidas = economy.mao_de_midas ?? false;
 
-    const limiteFamilia = Number.isFinite(raw.limite_familia)
-      ? raw.limite_familia
-      : (Number.isFinite(social.limite_familia) ? social.limite_familia : (raw.maxFamilyMembers ?? limits.familyMembers ?? 0));
+    const limiteFamilia = social.limite_familia ?? raw.limite_familia ?? 0;
+    const vipsParaDar = social.vips_para_dar ?? 0;
+    const tipoCota = social.tipo_cota ?? null;
 
-    const limiteDamas = Number.isFinite(raw.limite_damas)
-      ? raw.limite_damas
-      : (Number.isFinite(social.limite_damas) ? social.limite_damas : (raw.maxDamas ?? limits.damas ?? 1));
-
-    const podePresentear = typeof raw.pode_presentear === "boolean"
-      ? raw.pode_presentear
-      : (typeof social.pode_presentear === "boolean" ? social.pode_presentear : false);
-
-    const ignorarSlowmode = typeof raw.ignorar_slowmode === "boolean"
-      ? raw.ignorar_slowmode
-      : (typeof tech.ignorar_slowmode === "boolean" ? tech.ignorar_slowmode : false);
-
-    const criarCallVip = typeof raw.criar_call_vip === "boolean"
-      ? raw.criar_call_vip
-      : (typeof tech.criar_call_vip === "boolean" ? tech.criar_call_vip : false);
-
-    const corExclusiva = typeof raw.cor_exclusiva === "string"
-      ? raw.cor_exclusiva
-      : (typeof tech.cor_exclusiva === "string" ? tech.cor_exclusiva : null);
+    const fantasma = tech.fantasma ?? false; // Habilidade Fantasma
+    const criarCallVip = tech.criar_call_vip ?? raw.criar_call_vip ?? false;
 
     return {
       id: tierId,
       name: raw.name ?? "VIP",
-      // legacy "price" kept for compatibility; prefer preco_shop for ranking/shop
-      price: raw.price ?? 0,
       roleId: raw.roleId ?? null,
-      days: raw.days ?? 0,
-      maxDamas: raw.maxDamas ?? limits.damas ?? 1,
-      canFamily: raw.canFamily ?? limits.allowFamily ?? false,
-      hasSecondRole: raw.hasSecondRole ?? false,
-      maxSecondRoleMembers: raw.maxSecondRoleMembers ?? limits.secondRoleMembers ?? 0,
-      maxFamilyMembers: raw.maxFamilyMembers ?? limits.familyMembers ?? 0,
+      
+      // Atributos de Economia
+      preco_shop: Number(precoShop),
+      bonus_inicial: Number(bonusInicial),
+      valor_daily_extra: Number(dailyExtra),
+      mao_de_midas: Boolean(maoDeMidas),
 
-      // New attribute-based benefits
-      valor_daily_extra: dailyExtra,
-      preco_shop: precoShop,
-      bonus_inicial: bonusInicial,
-      limite_familia: limiteFamilia,
-      limite_damas: limiteDamas,
-      pode_presentear: podePresentear,
-      ignorar_slowmode: ignorarSlowmode,
-      criar_call_vip: criarCallVip,
-      cor_exclusiva: corExclusiva,
+      // Atributos Sociais
+      limite_familia: Number(limiteFamilia),
+      vips_para_dar: Number(vipsParaDar),
+      tipo_cota: tipoCota,
+
+      // Atributos Técnicos
+      fantasma: Boolean(fantasma),
+      criar_call_vip: Boolean(criarCallVip),
+      cor_exclusiva: tech.cor_exclusiva ?? raw.cor_exclusiva ?? null,
     };
+  }
+
+  // --- NOVA FUNÇÃO: SALVA OS DADOS DO MODAL ---
+  async function updateTierBenefits(guildId, tierId, category, benefitsPatch) {
+    if (!guildId || !tierId) return;
+    await vipConfigStore.update(guildId, (current) => {
+      const tiers = current || {};
+      if (!tiers[tierId]) tiers[tierId] = { benefits: { economy: {}, social: {}, tech: {} } };
+      if (!tiers[tierId].benefits) tiers[tierId].benefits = { economy: {}, social: {}, tech: {} };
+
+      // Atualiza apenas a categoria específica (economy, social ou tech)
+      tiers[tierId].benefits[category] = { 
+        ...tiers[tierId].benefits[category], 
+        ...benefitsPatch 
+      };
+      return tiers;
+    });
   }
 
   async function setGuildTier(guildId, tierId, tierData) {
@@ -102,17 +98,25 @@ function createVipConfigManager() {
 
     for (const [id, tier] of Object.entries(tiers)) {
       if (member.roles.cache.has(tier.roleId)) {
-        const preco = tier.price ?? 0;
+        const config = await getTierConfig(member.guild.id, id);
+        const preco = config.preco_shop ?? 0;
         if (preco > maiorPreco) {
           maiorPreco = preco;
-          melhor = await getTierConfig(member.guild.id, id);
+          melhor = config;
         }
       }
     }
     return melhor;
   }
 
-  return { getGuildTiers, getTierConfig, setGuildTier, removeGuildTier, getMemberTier };
+  return { 
+    getGuildTiers, 
+    getTierConfig, 
+    setGuildTier, 
+    removeGuildTier, 
+    getMemberTier, 
+    updateTierBenefits // Exportada para o vipadmin usar
+  };
 }
 
 module.exports = { createVipConfigManager };
