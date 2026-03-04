@@ -3,11 +3,11 @@ const { createEmbed } = require("../embeds");
 
 const categoryMapping = {
   "Administração": ["botadmin", "moderation", "leveladmin", "shopadmin", "tagroleadmin", "resetconfig", "logs", "presence", "vipadmin", "sejawda"],
-  "Diversão": ["fun", "bicho", "blackjack"],
+  "Diversão": ["fun", "dama", "enquete"],
   "Economia": ["economy", "shop"],
   "VIP": ["vip", "vipbuy", "vipservice"],
   "Social": ["social", "family"],
-  "Níveis": ["levels"],
+  "Níveis": ["levels", "leaderboard"],
   "Utilidade": ["utility", "ping", "ticket", "ajuda"]
 };
 
