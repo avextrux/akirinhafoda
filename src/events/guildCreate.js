@@ -25,8 +25,8 @@ module.exports = {
               xp: 0,
               level: 1,
               totalXp: 0,
-              messages: 0,
-              voiceMs: 0
+              messages_count: 0,
+              voice_time: 0
             }));
             syncedCount++;
           }
