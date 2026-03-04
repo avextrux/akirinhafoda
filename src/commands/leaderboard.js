@@ -373,7 +373,7 @@ module.exports = {
     ),
 
   async execute(interaction) {
-    const sub = interaction.options.getSubcommand();
+    const sub = interaction.options.getSubcommand(false); // false para não lançar erro se não tiver subcomando
     
     if (sub === "comprar") {
       const cardId = interaction.options.getString("card");
@@ -425,71 +425,71 @@ module.exports = {
         )],
         ephemeral: true 
       });
-    }
-    
-    // Comando principal do leaderboard
-    const page = interaction.options.getInteger("pagina") || 1;
-    
-    await interaction.deferReply();
-    
-    try {
-      const imagemBuffer = await gerarImagemLeaderboard(interaction, page);
+    } else {
+      // Comando principal do leaderboard
+      const page = interaction.options.getInteger("pagina") || 1;
+      
+      await interaction.deferReply();
+      
+      try {
+        const imagemBuffer = await gerarImagemLeaderboard(interaction, page);
       
       if (!imagemBuffer) {
-        return interaction.editReply({
-          embeds: [createErrorEmbed("Nenhum usuário encontrado nesta página.")],
-          ephemeral: true
-        });
-      }
-      
-      // Criar botões de navegação
-      const totalPages = Math.ceil(
+          return interaction.editReply({
+            embeds: [createErrorEmbed("Nenhum usuário encontrado nesta página.")],
+            ephemeral: true
+          });
+        }
+        
+        // Criar botões de navegação
+        const totalPages = Math.ceil(
         Object.entries(await levelsStore.load())
           .filter(([id, data]) => (data.totalXp || 0) >= 10)
           .length / 5
       );
       
       const row = new ActionRowBuilder();
-      
-      // Botão anterior
-      row.addComponents(
-        new ButtonBuilder()
-          .setCustomId(`leaderboard_prev_${page}`)
-          .setLabel("⬅️ Anterior")
-          .setStyle(ButtonStyle.Secondary)
-          .setDisabled(page <= 1)
-      );
-      
-      // Botão de shop
-      row.addComponents(
-        new ButtonBuilder()
-          .setCustomId("leaderboard_shop")
-          .setLabel("🛍️ Cards")
-          .setStyle(ButtonStyle.Primary)
-      );
-      
-      // Botão próximo
-      row.addComponents(
-        new ButtonBuilder()
-          .setCustomId(`leaderboard_next_${page}`)
-          .setLabel("Próximo ➡️")
-          .setStyle(ButtonStyle.Secondary)
-          .setDisabled(page >= totalPages)
-      );
-      
-      const attachment = new AttachmentBuilder(imagemBuffer, "leaderboard.png");
-      
-      return interaction.editReply({
-        files: [attachment],
-        components: [row]
-      });
-      
-    } catch (error) {
-      console.error("Erro ao gerar leaderboard:", error);
-      return interaction.editReply({
-        content: "Ocorreu um erro ao gerar o leaderboard. Tente novamente.",
-        ephemeral: true
-      });
+        
+        // Botão anterior
+        row.addComponents(
+          new ButtonBuilder()
+            .setCustomId(`leaderboard_prev_${page}`)
+            .setLabel("⬅️ Anterior")
+            .setStyle(ButtonStyle.Secondary)
+            .setDisabled(page <= 1)
+        );
+        
+        // Botão de shop
+        row.addComponents(
+          new ButtonBuilder()
+            .setCustomId("leaderboard_shop")
+            .setLabel("🛍️ Cards")
+            .setStyle(ButtonStyle.Primary)
+        );
+        
+        // Botão próximo
+        row.addComponents(
+          new ButtonBuilder()
+            .setCustomId(`leaderboard_next_${page}`)
+            .setLabel("Próximo ➡️")
+            .setStyle(ButtonStyle.Secondary)
+            .setDisabled(page >= totalPages)
+        );
+        
+        const attachment = new AttachmentBuilder(imagemBuffer, "leaderboard.png");
+        
+        return interaction.editReply({
+          files: [attachment],
+          components: [row]
+        });
+        
+      } catch (error) {
+        console.error("Erro ao gerar leaderboard:", error);
+        return interaction.editReply({
+          content: "Ocorreu um erro ao gerar o leaderboard. Tente novamente.",
+          ephemeral: true
+        });
+      }
     }
   },
 
