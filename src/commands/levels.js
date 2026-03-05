@@ -1,7 +1,15 @@
 const { SlashCommandBuilder, PermissionFlagsBits, AttachmentBuilder } = require("discord.js");
 const { createEmbed, createSuccessEmbed, createErrorEmbed } = require("../embeds");
 const { createDataStore } = require("../store/dataStore");
-const { createCanvas, loadImage } = require("canvas");
+
+let createCanvas, loadImage;
+try {
+  const canvas = require("canvas");
+  createCanvas = canvas.createCanvas;
+  loadImage = canvas.loadImage;
+} catch (error) {
+  console.log("⚠️ Canvas não disponível - comandos de imagem desativados");
+}
 
 const levelsStore = createDataStore("levels.json");
 const levelRolesStore = createDataStore("levelRoles.json");

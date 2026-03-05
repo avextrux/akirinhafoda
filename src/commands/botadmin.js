@@ -40,6 +40,11 @@ module.exports = {
         .setName("setbanner")
         .setDescription("Altera o banner do bot (se suportado)")
         .addAttachmentOption((opt) => opt.setName("imagem").setDescription("Nova imagem").setRequired(true))
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName("leaveguild")
+        .setDescription("Faz o bot sair do servidor atual")
     ),
 
   async execute(interaction) {
@@ -127,6 +132,17 @@ module.exports = {
         embeds: [createSuccessEmbed("Configuração de comandos atualizada.")],
         ephemeral: true,
       });
+    }
+
+    if (sub === "leaveguild") {
+      await interaction.reply({
+        embeds: [createSuccessEmbed("👋 Bot sairá do servidor em 3 segundos...")],
+        ephemeral: true,
+      });
+
+      setTimeout(() => {
+        interaction.guild.leave().catch(console.error);
+      }, 3000);
     }
   }
 };

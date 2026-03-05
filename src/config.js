@@ -28,8 +28,8 @@ function getEnv(name, { required = false, defaultValue } = {}) {
 
 const config = Object.freeze({
   discord: {
-    token: getEnv("DISCORD_TOKEN", { required: true }),
-    clientId: getEnv("CLIENT_ID", { required: true }),
+    token: getEnv("DISCORD_TOKEN", { required: false }),
+    clientId: getEnv("CLIENT_ID", { required: false }),
     guildId: getEnv("GUILD_ID"),
   },
   vip: {

@@ -31,6 +31,17 @@ for (const file of commandFiles) {
     }
 }
 
+if (!token || !clientId || !guildId) {
+    console.log('\n📋 COMANDOS CARREGADOS (sem deploy):');
+    console.log(`Total: ${commands.length} comandos`);
+    console.log('\n📝 Para fazer o deploy, configure seu .env com:');
+    console.log('- DISCORD_TOKEN=seu_token_aqui');
+    console.log('- CLIENT_ID=seu_client_id_aqui');
+    console.log('- GUILD_ID=seu_guild_id_aqui');
+    console.log('\n🔧 Depois execute: node scripts/deploy-commands.js');
+    process.exit(0);
+}
+
 const rest = new REST({ version: '10' }).setToken(token);
 
 (async () => {

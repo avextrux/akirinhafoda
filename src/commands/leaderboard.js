@@ -1,7 +1,16 @@
 const { SlashCommandBuilder, AttachmentBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require("discord.js");
-const { createCanvas, loadImage, registerFont } = require("canvas");
 const { createEmbed, createSuccessEmbed, createErrorEmbed } = require("../embeds");
 const { createDataStore } = require("../store/dataStore");
+
+let createCanvas, loadImage, registerFont;
+try {
+  const canvas = require("canvas");
+  createCanvas = canvas.createCanvas;
+  loadImage = canvas.loadImage;
+  registerFont = canvas.registerFont;
+} catch (error) {
+  console.log("⚠️ Canvas não disponível - comandos de imagem desativados");
+}
 
 const levelsStore = createDataStore("levels.json");
 const userCardsStore = createDataStore("userCards.json");
