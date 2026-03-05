@@ -3,8 +3,8 @@ const { createEmbed } = require("../embeds");
 
 const categoryMapping = {
   "Administração": ["botadmin", "moderation", "leveladmin", "shopadmin", "tagroleadmin", "resetconfig", "logs", "presence", "vipadmin", "sejawda"],
-  "Diversão": ["fun", "dama", "enquete"],
-  "Economia": ["economy", "shop"],
+  "Diversão": ["fun", "dama", "enquete", "blackjack", "roleta", "velha", "bicho"],
+  "Economia": ["economy", "shop", "setupcards"],
   "VIP": ["vip", "vipbuy", "vipservice"],
   "Social": ["social", "family"],
   "Níveis": ["levels", "leaderboard"],
@@ -166,7 +166,7 @@ module.exports = {
         { name: `${pin} Dica`, value: "Abra uma categoria para ver descrição, uso e permissões dos comandos.", inline: false }
       ],
       color: 0x8e44ad,
-      footer: { text: `Solicitado por ${interaction.user.username}` }
+      footer: { text: `Solicitado por ${interaction.user.username} • WDA - Todos os direitos reservados` }
     });
 
     await interaction.reply({ 
@@ -210,7 +210,7 @@ module.exports = {
             { name: `${pin} Navegação`, value: `Página ${currentPage + 1}/${currentPages.length}`, inline: true }
           ],
           color: getCategoryColor(currentCategory),
-          footer: { text: `Categoria: ${currentCategory}` }
+          footer: { text: `Categoria: ${currentCategory} • WDA - Todos os direitos reservados` }
         });
 
         return i.update({
@@ -250,7 +250,7 @@ module.exports = {
             { name: `${pin} Navegação`, value: `Página ${currentPage + 1}/${currentPages.length}`, inline: true }
           ],
           color: getCategoryColor(currentCategory),
-          footer: { text: `Categoria: ${currentCategory}` }
+          footer: { text: `Categoria: ${currentCategory} • WDA - Todos os direitos reservados` }
         });
 
         return i.update({ embeds: [categoryEmbed], components: [navRow] });
