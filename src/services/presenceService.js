@@ -1,26 +1,32 @@
 const { ActivityType, EmbedBuilder } = require("discord.js");
-const mongoStore = require("../store/mongoStore"); 
+const { createDataStore } = require("../store/dataStore");
+
+// Usando o seu gerenciador padrão, que já cuida do MongoDB corretamente
+const presenceStore = createDataStore("presence.json");
 
 let rotationInterval = null;
 let maintenanceInterval = null;
 
-// Criamos a função que o seu index.js está procurando
 function createPresenceService() {
   return {
     async getPresence() {
-      const data = await mongoStore.get("presence");
-      return data || { status: "online", activity: null, random: { enabled: false, phrases: [] } };
+      const db = await presenceStore.load();
+      // Lemos do objeto 'global' do banco de dados
+      return db["global"] || { status: "online", activity: null, random: { enabled: false, phrases: [] } };
     },
 
     async setPresence(presenceData) {
       const current = await this.getPresence();
-      const updated = { ...current, ...presenceData, random: { ...current.random, enabled: false } };
-      return await mongoStore.set("presence", updated);
+      const updated = { ...current, ...presenceData, random: { ...(current.random || {}), enabled: false } };
+      
+      await presenceStore.update("global", () => updated);
+      return updated;
     },
 
     async clearPresence() {
       const empty = { status: "online", activity: null, random: { enabled: false, phrases: [] } };
-      return await mongoStore.set("presence", empty);
+      await presenceStore.update("global", () => empty);
+      return empty;
     },
 
     async applyPresence(client) {
@@ -37,8 +43,10 @@ function createPresenceService() {
     async addRandomText(text) {
       const data = await this.getPresence();
       if (!data.random) data.random = { enabled: false, phrases: [] };
+      
       data.random.phrases.push(text);
-      return await mongoStore.set("presence", data);
+      await presenceStore.update("global", () => data);
+      return data;
     },
 
     async getPhrases() {
@@ -48,17 +56,19 @@ function createPresenceService() {
 
     async removeRandomText(index) {
       const data = await this.getPresence();
-      if (!data.random?.phrases[index]) return false;
+      if (!data.random?.phrases || !data.random.phrases[index]) return false;
+      
       data.random.phrases.splice(index, 1);
-      await mongoStore.set("presence", data);
+      await presenceStore.update("global", () => data);
       return true;
     },
 
     async toggleRotation() {
       const data = await this.getPresence();
       if (!data.random) data.random = { enabled: false, phrases: [] };
+      
       data.random.enabled = !data.random.enabled;
-      await mongoStore.set("presence", data);
+      await presenceStore.update("global", () => data);
       return data.random.enabled;
     },
 
@@ -67,6 +77,7 @@ function createPresenceService() {
       rotationInterval = setInterval(async () => {
         const data = await this.getPresence();
         if (!data.random?.enabled || !data.random.phrases.length) return this.stopRotation();
+        
         const frase = data.random.phrases[Math.floor(Math.random() * data.random.phrases.length)];
         client.user.setActivity(frase, { type: ActivityType.Custom });
       }, 30000);
@@ -80,10 +91,12 @@ function createPresenceService() {
     // --- MANUTENÇÃO ---
     async startMaintenanceLoop(client, data) {
       if (maintenanceInterval) clearInterval(maintenanceInterval);
+      
       maintenanceInterval = setInterval(async () => {
         try {
           const channel = client.channels.cache.get(data.channelId);
           if (!channel) return;
+          
           const message = await channel.messages.fetch(data.messageId).catch(() => null);
           if (!message) return;
 
@@ -97,8 +110,11 @@ function createPresenceService() {
               { name: "Sincronizado", value: `<t:${Math.floor(Date.now()/1000)}:R>`, inline: false }
             )
             .setColor(0xFFA500);
+            
           await message.edit({ embeds: [embed] });
-        } catch (e) { console.error(e); }
+        } catch (e) { 
+          console.error("Erro no loop de manutenção:", e); 
+        }
       }, 120000);
     },
 
@@ -109,5 +125,4 @@ function createPresenceService() {
   };
 }
 
-// Exportamos a função, não o objeto
 module.exports = { createPresenceService };
