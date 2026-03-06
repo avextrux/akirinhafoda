@@ -108,20 +108,25 @@ module.exports = {
         return interaction.editReply({ content: "❌ O banco de dados de parcerias já está vazio!" });
       }
 
-      // Varre o banco de dados e apaga todas as chaves de forma segura para o MongoDB
+      // Varre o banco de dados com dupla segurança
       for (const key of keys) {
         try {
+            // 1. Força a mudança de status para que ela suma IMEDIATAMENTE da lista
+            await partnersStore.update(key, (data) => {
+                if (data) data.status = "deleted";
+                return data;
+            });
+            
+            // 2. Tenta deletar fisicamente do banco de dados (se o método existir no seu wrapper)
             if (typeof partnersStore.delete === 'function') {
                 await partnersStore.delete(key);
-            } else {
-                await partnersStore.update(key, () => undefined);
             }
         } catch (e) {
-            console.error(`Erro ao apagar a chave ${key}:`, e);
+            console.error(`Erro ao limpar a chave ${key}:`, e);
         }
       }
 
-      return interaction.editReply({ content: `✅ Limpeza concluída com sucesso! **${keys.length}** parcerias foram permanentemente apagadas do banco de dados.` });
+      return interaction.editReply({ content: `✅ Limpeza forçada concluída! **${keys.length}** parcerias foram removidas da lista do servidor.` });
     }
   }
 };
