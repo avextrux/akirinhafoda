@@ -1,8 +1,6 @@
 const { SlashCommandBuilder, EmbedBuilder } = require("discord.js");
-const { createSuccessEmbed } = require("../embeds");
-
-// ID do canal onde as sugestões vão ficar
-const CANAL_SUGESTOES_ID = "COLOQUE_O_ID_AQUI";
+const { createSuccessEmbed, createErrorEmbed } = require("../embeds");
+const { getGuildConfig } = require("../config/guildConfig");
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -16,10 +14,25 @@ module.exports = {
 
     async execute(interaction) {
         const ideia = interaction.options.getString("ideia");
-        const canal = interaction.guild.channels.cache.get(CANAL_SUGESTOES_ID);
+        
+        // Puxa a configuração dinâmica do servidor
+        const guildConfig = await getGuildConfig(interaction.guildId);
+        const canalId = guildConfig.suggestionChannelId;
+
+        if (!canalId) {
+            return interaction.reply({ 
+                embeds: [createErrorEmbed("O canal de sugestões ainda não foi configurado. Peça a um Staff para configurá-lo.")], 
+                ephemeral: true 
+            });
+        }
+
+        const canal = interaction.guild.channels.cache.get(canalId);
 
         if (!canal) {
-            return interaction.reply({ content: "Canal de sugestões não configurado.", ephemeral: true });
+            return interaction.reply({ 
+                embeds: [createErrorEmbed("O canal de sugestões configurado não foi encontrado. Talvez tenha sido apagado.")], 
+                ephemeral: true 
+            });
         }
 
         const embed = new EmbedBuilder()
@@ -30,7 +43,7 @@ module.exports = {
             .setTimestamp();
 
         const msg = await canal.send({ embeds: [embed] });
-
+        
         // Adiciona as reações automaticamente
         await msg.react("👍");
         await msg.react("👎");
