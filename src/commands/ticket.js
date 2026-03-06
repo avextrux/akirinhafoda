@@ -24,11 +24,11 @@ async function generateTicketName(guild, categoryPrefix, username) {
   const categoryChannels = guild.channels.cache.filter(c => 
     c.name.startsWith(categoryPrefix) && c.type === ChannelType.GuildText
   );
-  
+
   const count = categoryChannels.size + 1;
   const paddedCount = String(count).padStart(3, "0");
   const cleanUsername = username.toLowerCase().replace(/\s+/g, "-");
-  
+
   return `${categoryPrefix}-${cleanUsername}-${paddedCount}`;
 }
 
@@ -55,7 +55,8 @@ module.exports = {
               { name: "Suporte", value: "suporte" },
               { name: "Parceria", value: "parceria" },
               { name: "Denúncia", value: "denuncia" },
-              { name: "Sugestão", value: "sugestao" }
+              { name: "Sugestão", value: "sugestao" },
+              { name: "👑 Seja VIP", value: "vip" } // <-- ADICIONADO AQUI
             )
         )
     )
@@ -72,7 +73,7 @@ module.exports = {
 
   async execute(interaction) {
     const sub = interaction.options.getSubcommand();
-    const logService = interaction.client.services.log;
+    const logService = interaction.client.services?.log;
     const ticketConfig = loadTicketCategories();
 
     if (!ticketConfig) {
@@ -85,17 +86,17 @@ module.exports = {
     if (sub === "setup") {
       const tipo = interaction.options.getString("tipo");
       const categoryConfig = ticketConfig.categories[tipo];
-      
+
       if (!categoryConfig) {
         return interaction.reply({ 
-          embeds: [createErrorEmbed("Tipo de ticket inválido.")], 
+          embeds: [createErrorEmbed("Tipo de ticket inválido ou não configurado no JSON.")], 
           ephemeral: true 
         });
       }
 
       const guildConfig = await getGuildConfig(interaction.guildId);
       const categoryId = guildConfig.ticketCategoryId;
-      
+
       if (!categoryId) {
         return interaction.reply({ 
           embeds: [createErrorEmbed("Configure a categoria dos tickets primeiro usando `/config ticket_category`.")], 
@@ -107,25 +108,25 @@ module.exports = {
         title: categoryConfig.title,
         description: categoryConfig.description,
         color: categoryConfig.color,
-        footer: categoryConfig.footer
+        footer: { text: categoryConfig.footer || "WDA - Todos os direitos reservados" }
       });
 
       const row = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
           .setCustomId(`open_ticket_${tipo}`)
           .setLabel(categoryConfig.buttonLabel)
-          .setStyle(ButtonStyle.Primary)
+          .setStyle(categoryConfig.buttonStyle || ButtonStyle.Primary)
           .setEmoji(categoryConfig.buttonEmoji || "🎫")
       );
 
       await interaction.channel.send({ embeds: [embed], components: [row] });
-      await interaction.reply({ content: "Painel de tickets enviado!", ephemeral: true });
+      await interaction.reply({ content: "Painel de tickets enviado com sucesso!", ephemeral: true });
     }
 
     if (sub === "close") {
       const tickets = await ticketStore.load();
       const ticketInfo = tickets[interaction.channelId];
-      
+
       if (!ticketInfo) {
         return interaction.reply({ 
           embeds: [createErrorEmbed("Este comando só pode ser usado em canais de ticket.")], 
@@ -148,12 +149,12 @@ module.exports = {
       }
 
       delete tickets[interaction.channelId];
-      await ticketStore.save(tickets);
+      await ticketStore.update("global", () => tickets); // Adaptação segura para o dataStore
 
       await interaction.reply({ 
         embeds: [createEmbed({ description: "🔒 Ticket será fechado em 5 segundos...", color: 0xF1C40F, footer: { text: "WDA - Todos os direitos reservados" } })] 
       });
-      
+
       setTimeout(() => {
         interaction.channel.delete().catch(() => {});
       }, 5000);
@@ -161,8 +162,11 @@ module.exports = {
 
     if (sub === "list") {
       const tickets = await ticketStore.load();
-      const openTickets = Object.entries(tickets)
-        .filter(([id, info]) => !info.closedAt)
+      // Ajuste para pegar do escopo 'global' se o seu DataStore usar keys
+      const allTickets = tickets["global"] || tickets; 
+      
+      const openTickets = Object.entries(allTickets)
+        .filter(([id, info]) => info && !info.closedAt && info.openedAt)
         .sort((a, b) => b[1].openedAt - a[1].openedAt);
 
       if (openTickets.length === 0) {
@@ -197,55 +201,42 @@ module.exports = {
   },
 
   async handleButton(interaction) {
-    const logService = interaction.client.services.log;
+    const logService = interaction.client.services?.log;
     const ticketConfig = loadTicketCategories();
 
     if (!ticketConfig) {
-      return interaction.reply({ 
-        content: "Sistema de tickets não configurado.", 
-        ephemeral: true 
-      });
+      return interaction.reply({ content: "Sistema de tickets não configurado.", ephemeral: true });
     }
 
     // Handler para abrir ticket
     if (interaction.customId.startsWith("open_ticket_")) {
       const ticketType = interaction.customId.replace("open_ticket_", "");
       const categoryConfig = ticketConfig.categories[ticketType];
-      
+
       if (!categoryConfig) {
-        return interaction.reply({ 
-          content: "Tipo de ticket inválido.", 
-          ephemeral: true 
-        });
+        return interaction.reply({ content: "Tipo de ticket inválido.", ephemeral: true });
       }
 
       const guildConfig = await getGuildConfig(interaction.guildId);
       const categoryId = guildConfig.ticketCategoryId;
-      
+
       if (!categoryId) {
-        return interaction.reply({ 
-          content: "O sistema de tickets não está configurado (falta categoria). Peça a um admin para usar `/config ticket_category`.", 
-          ephemeral: true 
-        });
+        return interaction.reply({ content: "O sistema de tickets não está configurado (falta categoria).", ephemeral: true });
       }
 
-      // Verifica se já tem ticket aberto
       const tickets = await ticketStore.load();
-      const existingTicket = Object.entries(tickets).find(([id, info]) => 
-        info.userId === interaction.user.id && !info.closedAt
-      );
+      const allTickets = tickets["global"] || tickets;
       
+      const existingTicket = Object.entries(allTickets).find(([id, info]) => 
+        info && info.userId === interaction.user.id && !info.closedAt
+      );
+
       if (existingTicket) {
-        return interaction.reply({ 
-          content: `Você já tem um ticket aberto: <#${existingTicket[0]}>`, 
-          ephemeral: true 
-        });
+        return interaction.reply({ content: `Você já tem um ticket aberto: <#${existingTicket[0]}>`, ephemeral: true });
       }
 
-      // Gera nome personalizado
       const ticketName = await generateTicketName(interaction.guild, categoryConfig.prefix, interaction.user.username);
 
-      // Cria o canal
       const channel = await interaction.guild.channels.create({
         name: ticketName,
         type: ChannelType.GuildText,
@@ -257,20 +248,20 @@ module.exports = {
         ]
       });
 
-      // Adiciona permissões para staff
-      ticketConfig.staffRoles.allowed.forEach(roleId => {
-        const role = interaction.guild.roles.cache.get(roleId);
-        if (role) {
-          channel.permissionOverwrites.create(role, {
-            ViewChannel: true,
-            SendMessages: true,
-            AttachFiles: true
+      if (ticketConfig.staffRoles && ticketConfig.staffRoles.allowed) {
+          ticketConfig.staffRoles.allowed.forEach(roleId => {
+            const role = interaction.guild.roles.cache.get(roleId);
+            if (role) {
+              channel.permissionOverwrites.create(role, {
+                ViewChannel: true,
+                SendMessages: true,
+                AttachFiles: true
+              });
+            }
           });
-        }
-      });
+      }
 
-      // Salva no banco de dados
-      tickets[channel.id] = {
+      const ticketData = {
         userId: interaction.user.id,
         channelName: channel.name,
         channelId: channel.id,
@@ -278,48 +269,27 @@ module.exports = {
         openedAt: Date.now(),
         closedAt: null
       };
-      await ticketStore.save(tickets);
+      
+      await ticketStore.update(channel.id, () => ticketData);
 
-      // Log da criação
       if (logService) {
         await logService.log(interaction.guild, {
           title: "🎫 Ticket Criado",
           description: `**${interaction.user.tag}** abriu um novo ticket do tipo **${ticketType}**.`,
-          color: 0x2ecc71,
+          color: categoryConfig.color || 0x2ecc71,
           fields: [
             { name: "👤 Usuário", value: interaction.user.tag, inline: true },
-            { name: "📋 Canal", value: channel.toString(), inline: true },
-            { name: "📅 Criado em", value: `<t:${Math.floor(Date.now() / 1000)}>` , inline: true }
+            { name: "📋 Canal", value: channel.toString(), inline: true }
           ],
           user: interaction.user
         });
       }
 
-      // Notificação para staff
-      if (ticketConfig.settings.enableNotifications && ticketConfig.settings.enableMentions) {
-        const staffMentions = ticketConfig.staffRoles.priority.map(roleId => `<@&${roleId}>`).join(" ");
-        
-        const notificationEmbed = createEmbed({
-          title: categoryConfig.notificationMessage,
-          description: `**${interaction.user.tag}** abriu um ticket e precisa de atendimento.\n\nCanal: ${channel}`,
-          color: categoryConfig.color,
-          footer: { text: "WDA - Todos os direitos reservados" }
-        });
-
-        const logChannel = interaction.guild.channels.cache.get(guildConfig.logChannelId);
-        if (logChannel) {
-          await logChannel.send({ 
-            content: staffMentions, 
-            embeds: [notificationEmbed] 
-          });
-        }
-      }
-
       const embed = createEmbed({
-        title: `Ticket de ${interaction.user.tag}`,
-        description: "Descreva seu problema aqui. A equipe de suporte chegará em breve.",
-        color: 0x2ecc71,
-        footer: "Use /ticket close para fechar • WDA - Todos os direitos reservados"
+        title: `Atendimento: ${categoryConfig.title}`,
+        description: "Descreva sua dúvida ou solicitação. A equipe responsável chegará em breve.",
+        color: categoryConfig.color || 0x2ecc71,
+        footer: { text: "Use o botão abaixo para encerrar o atendimento." }
       });
 
       const row = new ActionRowBuilder().addComponents(
@@ -331,55 +301,28 @@ module.exports = {
       );
 
       await channel.send({ content: `${interaction.user}`, embeds: [embed], components: [row] });
-      await interaction.reply({ content: `Ticket criado: ${channel}`, ephemeral: true });
+      await interaction.reply({ content: `Ticket criado com sucesso: ${channel}`, ephemeral: true });
     }
 
     // Handler para fechar ticket
     if (interaction.customId === "close_ticket_btn") {
       const tickets = await ticketStore.load();
-      const ticketInfo = tickets[interaction.channelId];
-      
+      const ticketInfo = tickets[interaction.channelId] || (tickets["global"] && tickets["global"][interaction.channelId]);
+
       if (!ticketInfo) {
-        return interaction.reply({ 
-          embeds: [createErrorEmbed("Este não é um ticket válido.")], 
-          ephemeral: true 
-        });
+        return interaction.reply({ embeds: [createErrorEmbed("Este não é um ticket válido.")], ephemeral: true });
       }
 
-      // Verificação de staff
       const member = await interaction.guild.members.fetch(interaction.user.id);
       if (!isStaff(member, ticketConfig.staffRoles) && ticketInfo.userId !== interaction.user.id) {
-        return interaction.reply({ 
-          embeds: [createErrorEmbed("Apenas staff ou o criador do ticket pode fechá-lo.")], 
-          ephemeral: true 
-        });
+        return interaction.reply({ embeds: [createErrorEmbed("Apenas staff ou o criador do ticket pode fechá-lo.")], ephemeral: true });
       }
-
-      // Log do fechamento
-      if (logService) {
-        await logService.log(interaction.guild, {
-          title: "🔒 Ticket Fechado",
-          description: `Ticket **${interaction.channel.name}** foi fechado por **${interaction.user.tag}**.`,
-          color: 0xe67e22,
-          fields: [
-            { name: "👤 Fechado por", value: interaction.user.tag, inline: true },
-            { name: "📅 Aberto em", value: `<t:${Math.floor(ticketInfo.openedAt / 1000)}>` , inline: true },
-            { name: "👥 Criador", value: `<@${ticketInfo.userId}>`, inline: true }
-          ],
-          user: interaction.user
-        });
-      }
-
-      delete tickets[interaction.channelId];
-      await ticketStore.save(tickets);
 
       await interaction.reply({ 
-        embeds: [createEmbed({ description: "🔒 Ticket será fechado em 5 segundos...", color: 0xF1C40F, footer: { text: "WDA - Todos os direitos reservados" } })] 
+        embeds: [createEmbed({ description: "🔒 Ticket será fechado em 5 segundos...", color: 0xF1C40F })] 
       });
-      
-      setTimeout(() => {
-        interaction.channel.delete().catch(() => {});
-      }, 5000);
+
+      setTimeout(() => interaction.channel.delete().catch(() => {}), 5000);
     }
   }
 };
