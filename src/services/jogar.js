@@ -34,7 +34,7 @@ module.exports = {
 
         // Envia marcando "Here" para chamar atenção (ajuste se preferir marcar um cargo de "Gamer")
         await interaction.reply({ 
-            content: "@here Bora movimentar a call!", 
+            content: "<@&929905406501859338> Bora movimentar a call!", 
             embeds: [embed], 
             components: [row] 
         });
