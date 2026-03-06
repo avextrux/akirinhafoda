@@ -1,170 +1,161 @@
-const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder } = require("discord.js");
-const { getGuildConfig, setGuildConfig } = require("../config/guildConfig");
+const { SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, ModalBuilder, TextInputBuilder, TextInputStyle } = require("discord.js");
+const { createSuccessEmbed, createErrorEmbed } = require("../embeds");
 const { createDataStore } = require("../store/dataStore");
+const { getGuildConfig } = require("../config/guildConfig");
 
 const partnersStore = createDataStore("partners.json");
+const staffStatsStore = createDataStore("staff_stats.json");
 
 module.exports = {
   data: new SlashCommandBuilder()
-    .setName("partnerconfig")
-    .setDescription("configuracoes administrativas do sistema de parceria")
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .setName("partnership")
+    .setDescription("sistema de parcerias para membros")
     .addSubcommand(sub =>
-      sub.setName("set")
-        .setDescription("configura o canal de logs e cargos da staff")
-        .addChannelOption(o => o.setName("logs").setDescription("canal onde os pedidos irao chegar"))
-        .addRoleOption(o => o.setName("staff").setDescription("cargo que sera mencionado nos pedidos"))
-        .addBooleanOption(o => o.setName("ativo").setDescription("define se o sistema esta aberto ao publico"))
+      sub.setName("solicitar")
+        .setDescription("solicite uma parceria (minimo 350 membros)")
+        .addStringOption(o => o.setName("servidor").setDescription("nome do seu servidor").setRequired(true))
+        .addStringOption(o => o.setName("convite").setDescription("link de convite").setRequired(true))
+        .addStringOption(o => o.setName("descricao").setDescription("descricao do servidor").setRequired(true))
+        .addIntegerOption(o => o.setName("membros").setDescription("numero de membros").setRequired(true).setMinValue(350))
+        .addStringOption(o => o.setName("banner").setDescription("link da imagem opcional"))
     )
     .addSubcommand(sub =>
-      sub.setName("ranks")
-        .setDescription("configura os cargos de ranking para quem faz parceria")
-        .addRoleOption(o => o.setName("bronze").setDescription("cargo para mais de 350 membros").setRequired(true))
-        .addRoleOption(o => o.setName("prata").setDescription("cargo para mais de 750 membros").setRequired(true))
-        .addRoleOption(o => o.setName("ouro").setDescription("cargo para mais de 1000 membros").setRequired(true))
-    )
-    .addSubcommand(sub =>
-      sub.setName("info")
-        .setDescription("consulta os detalhes de uma parceria especifica")
-        .addStringOption(o => o.setName("id").setDescription("digite o id da parceria gerado no log").setRequired(true))
+      sub.setName("listar").setDescription("lista todas as parcerias ativas")
     ),
 
   async execute(interaction) {
     const sub = interaction.options.getSubcommand();
-    const { guildId } = interaction;
-    let guildConfig = await getGuildConfig(guildId) || {};
-    let pConfig = guildConfig.partnership || {};
+    const { guildId, user, guild } = interaction;
+    
+    if (sub === "solicitar") {
+      // 1. Atrasa a resposta IMEDIATAMENTE para matar o erro "O aplicativo não respondeu"
+      await interaction.deferReply({ ephemeral: true });
 
-    if (sub === "set") {
-      const logChan = interaction.options.getChannel("logs");
-      const role = interaction.options.getRole("staff");
-      const active = interaction.options.getBoolean("ativo");
+      const guildConfig = await getGuildConfig(guildId) || {};
+      const pConfig = guildConfig.partnership || { enabledForAll: false };
 
-      if (logChan) pConfig.logChannelId = logChan.id;
-      if (active !== null) pConfig.enabledForAll = active;
+      if (!pConfig.enabledForAll) {
+        return interaction.editReply({ embeds: [createErrorEmbed("O sistema de parcerias está desativado.")] });
+      }
 
-      if (role) {
-        if (!Array.isArray(pConfig.staffRoles)) pConfig.staffRoles = [];
-        if (pConfig.staffRoles.includes(role.id)) {
-          pConfig.staffRoles = pConfig.staffRoles.filter(id => id !== role.id);
-        } else {
-          pConfig.staffRoles.push(role.id);
+      // Lógica de Cooldown (24h)
+      const allPartners = await partnersStore.load();
+      const userRequests = Object.values(allPartners).filter(p => p.requesterId === user.id);
+      if (userRequests.length > 0) {
+        const lastReq = userRequests.sort((a, b) => new Date(b.date) - new Date(a.date))[0];
+        const cooldown = 24 * 60 * 60 * 1000;
+        if (Date.now() - new Date(lastReq.date).getTime() < cooldown) {
+          return interaction.editReply({ embeds: [createErrorEmbed("Você já enviou uma solicitação recentemente. Tente novamente em 24h.")] });
         }
       }
 
-      await setGuildConfig(guildId, { partnership: pConfig });
-      return interaction.reply({ content: "As configurações foram atualizadas e salvas.", ephemeral: true });
-    }
-
-    if (sub === "ranks") {
-      pConfig.ranks = {
-        bronze: interaction.options.getRole("bronze").id,
-        prata: interaction.options.getRole("prata").id,
-        ouro: interaction.options.getRole("ouro").id
+      const data = {
+        id: `PARC${Math.floor(Math.random() * 90000) + 10000}`,
+        requesterId: user.id,
+        serverName: interaction.options.getString("servidor"),
+        inviteLink: interaction.options.getString("convite"),
+        description: interaction.options.getString("descricao").replace(/@/g, ""),
+        memberCount: interaction.options.getInteger("membros"),
+        banner: interaction.options.getString("banner"),
+        status: "pending",
+        date: new Date().toISOString()
       };
 
-      await setGuildConfig(guildId, { partnership: pConfig });
-      return interaction.reply({ content: "Os cargos de ranking foram vinculados.", ephemeral: true });
-    }
-
-    if (sub === "info") {
-      const partners = await partnersStore.load();
-      const searchId = interaction.options.getString("id").toUpperCase();
-      const data = partners[searchId];
-
-      if (!data) return interaction.reply({ content: "Nenhuma parceria encontrada com este ID.", ephemeral: true });
+      await partnersStore.update(data.id, () => data);
+      const logChan = guild.channels.cache.get(pConfig.logChannelId);
 
       const embed = new EmbedBuilder()
-        .setTitle(`Informações do ID: ${data.id}`)
+        .setTitle("Nova Solicitação de Parceria")
+        .setColor(0xFFFF00)
         .addFields(
-          { name: "Nome do Servidor", value: data.serverName, inline: true },
-          { name: "Membros Informados", value: `${data.memberCount}`, inline: true },
-          { name: "Situação", value: data.status, inline: true },
-          { name: "Solicitante", value: `<@${data.requesterId}>`, inline: true }
+          { name: "ID", value: data.id, inline: true },
+          { name: "Representante", value: `<@${user.id}>`, inline: true },
+          { name: "Servidor", value: data.serverName, inline: true },
+          { name: "Link Enviado", value: data.inviteLink, inline: false }
         )
-        .setTimestamp(new Date(data.date));
+        .setDescription(`**Descrição:**\n${data.description}`);
 
-      if (data.processedBy) {
-        embed.addFields({ name: "Processado por", value: `<@${data.processedBy}>`, inline: true });
-      }
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`partnership_approve_${data.id}`).setLabel("Aprovar").setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId(`partnership_reject_${data.id}`).setLabel("Recusar").setStyle(ButtonStyle.Danger)
+      );
 
-      return interaction.reply({ embeds: [embed], ephemeral: true });
+      if (logChan) await logChan.send({ embeds: [embed], components: [row] });
+      // 2. Trocamos o .reply() por .editReply() porque já usamos o deferReply() lá no topo
+      return interaction.editReply({ embeds: [createSuccessEmbed("Solicitação enviada com sucesso!")] });
     }
   },
 
-  // === ROTEAMENTO DE BOTÕES ===
   async handleButton(interaction) {
-    // Separa a estrutura: partnership_approve_12345
+    // 3. CORREÇÃO CRÍTICA DO BUG DO SPLIT: Pegando os dados de forma correta
     const parts = interaction.customId.split("_");
-    const prefix = parts[0];     // "partnership"
-    const action = parts[1];     // "approve" ou "reject"
-    const partnerId = parts[2];  // ID gerado no log
+    const action = parts[1]; // "approve" ou "reject"
+    const id = parts[2];     // "PARC12345"
 
-    // 1. APROVAÇÃO: Responder pro Discord imediatamente com deferUpdate para não dar 10062
-    if (action === "approve") {
-      await interaction.deferUpdate(); 
-      
-      const partners = await partnersStore.load();
-      const data = partners[partnerId];
+    const partners = await partnersStore.load();
+    const data = partners[id];
 
-      if (!data) {
-        return interaction.followUp({ content: "❌ Esta solicitação de parceria não existe mais no banco de dados.", ephemeral: true });
-      }
+    if (!data || data.status !== "pending") return interaction.reply({ content: "Pedido não encontrado ou já processado.", ephemeral: true });
 
-      // Atualiza o status no banco de dados
-      data.status = "Aprovado";
-      data.processedBy = interaction.user.id;
-      await partnersStore.save(partners);
-      
-      // Aqui você pode adicionar lógica para dar os cargos, enviar mensagem pro usuário, etc.
-      return interaction.followUp({ content: `✅ Parceria com o servidor **${data.serverName}** (ID: ${partnerId}) foi **aprovada** com sucesso por <@${interaction.user.id}>!`, ephemeral: false });
-    }
-
-    // 2. RECUSA: O Modal precisa ser aberto IMEDIATAMENTE. Não use deferUpdate aqui.
     if (action === "reject") {
-      const modal = new ModalBuilder()
-        // customId do Modal mantém o padrão para ser capturado no split
-        .setCustomId(`partnership_modal_${partnerId}`) 
-        .setTitle(`Recusar Parceria`);
-
-      const reasonInput = new TextInputBuilder()
-        .setCustomId("rejectReason")
-        .setLabel("Qual o motivo da recusa?")
-        .setPlaceholder("Ex: Servidor não atingiu a meta de membros...")
-        .setStyle(TextInputStyle.Paragraph)
-        .setRequired(true);
-
-      const actionRow = new ActionRowBuilder().addComponents(reasonInput);
-      modal.addComponents(actionRow);
-
-      // Abre o modal na tela do staff
+      // Abre o modal na hora (não podemos usar deferUpdate antes de um modal)
+      const modal = new ModalBuilder().setCustomId(`partnership_modal_reject_${id}`).setTitle("Recusar Parceria");
+      const input = new TextInputBuilder().setCustomId("reason").setLabel("Motivo").setStyle(TextInputStyle.Paragraph).setRequired(true);
+      modal.addComponents(new ActionRowBuilder().addComponents(input));
       return await interaction.showModal(modal);
     }
+
+    if (action === "approve") {
+      // Responde pedindo o canal (isso já mata o timeout de 3 segundos)
+      await interaction.reply({ content: "Mencione o canal para postagem.", ephemeral: true });
+      const filter = m => m.author.id === interaction.user.id && m.mentions.channels.size > 0;
+      const collector = interaction.channel.createMessageCollector({ filter, max: 1, time: 30000 });
+
+      collector.on('collect', async m => {
+        const targetChan = m.mentions.channels.first();
+        const guildConfig = await getGuildConfig(interaction.guildId);
+        
+        // Correção de Link e Descrição
+        let finalLink = data.inviteLink.trim();
+        if (!finalLink.startsWith('http')) finalLink = `https://${finalLink}`;
+        const cleanDesc = data.description.replace(/(https?:\/\/)?(www\.)?(discord\.(gg|io|me|li)|discordapp\.com\/invite)\/[^\s]+/gi, "[Link Removido]");
+
+        const postEmbed = new EmbedBuilder()
+          .setColor(0x2ecc71)
+          .setDescription(`--- {☩} NOVA PARCERIA FECHADA! {☩} ---\n\n✅ **Server:** ${data.serverName}\n👤 **Representante:** <@${data.requesterId}>\n🛡️ **Responsável:** <@${interaction.user.id}>\n\n${cleanDesc}\n\n{☩}----------multimap 🤝 multimap----------{☩}`);
+
+        if (data.banner?.startsWith("http")) postEmbed.setImage(data.banner);
+
+        const ping = guildConfig.partnership?.pingRole ? `<@&${guildConfig.partnership.pingRole}>` : "@everyone";
+        await targetChan.send({ content: `${ping}\n**Convite:** ${finalLink}`, embeds: [postEmbed] });
+        
+        await partnersStore.update(id, c => ({ ...c, status: "accepted", processedBy: interaction.user.id }));
+        await staffStatsStore.update(interaction.user.id, c => ({ ...c, approved: (c?.approved || 0) + 1 }));
+
+        await interaction.message.edit({ content: `✅ Aprovada por <@${interaction.user.id}>`, components: [], embeds: [EmbedBuilder.from(interaction.message.embeds[0]).setColor(0x00FF00)] });
+        m.delete().catch(() => null);
+      });
+    }
   },
 
-  // === ROTEAMENTO DE MODAIS ===
   async handleModal(interaction) {
-    // Separa a estrutura: partnership_modal_12345
-    const parts = interaction.customId.split("_");
-    const partnerId = parts[2]; // Pega o ID
-
-    // DeferUpdate porque agora precisamos processar o texto e salvar no banco
+    const id = interaction.customId.split("_")[3];
+    
+    // 4. EVITANDO O 10062 AQUI TAMBÉM: Deferimos a atualização pois mandar DM para usuário pode demorar
     await interaction.deferUpdate();
 
-    const reason = interaction.fields.getTextInputValue("rejectReason");
+    const reason = interaction.fields.getTextInputValue("reason");
     const partners = await partnersStore.load();
-    const data = partners[partnerId];
+    const data = partners[id];
 
-    if (!data) {
-      return interaction.followUp({ content: "❌ Esta solicitação de parceria não existe mais no banco de dados.", ephemeral: true });
-    }
+    await partnersStore.update(id, c => ({ ...c, status: "rejected", processedBy: interaction.user.id, reason }));
+    
+    const user = await interaction.client.users.fetch(data.requesterId).catch(() => null);
+    if (user) await user.send(`Sua parceria com **${data.serverName}** foi recusada. Motivo: ${reason}`).catch(() => null);
 
-    // Salva a recusa no banco
-    data.status = "Recusado";
-    data.rejectReason = reason;
-    data.processedBy = interaction.user.id;
-    await partnersStore.save(partners);
-
-    return interaction.followUp({ content: `⛔ A parceria com o servidor **${data.serverName}** (ID: ${partnerId}) foi **recusada**.\n**Motivo:** \`${reason}\``, ephemeral: false });
+    const embed = EmbedBuilder.from(interaction.message.embeds[0]).setColor(0xFF0000).addFields({ name: "Motivo", value: reason });
+    
+    // Como usamos deferUpdate(), finalizamos editando a resposta
+    return interaction.editReply({ content: `❌ Recusada por <@${interaction.user.id}>`, components: [], embeds: [embed] });
   }
 };
