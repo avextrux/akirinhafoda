@@ -161,11 +161,21 @@ module.exports = {
         const latestExisting = Object.entries(latestChats).find(
           ([, data]) => data.userId === interaction.user.id && data.guildId === interaction.guildId && !data.closedAt
         );
+        
+        // ERRO CORRIGIDO AQUI: Verificação de chat fantasma adicionada.
         if (latestExisting) {
-          return interaction.reply({
-            embeds: [createErrorEmbed(`Você já possui um chat aberto: <#${latestExisting[0]}>`)],
-            ephemeral: true
-          });
+          const channelExists = await interaction.guild.channels.fetch(latestExisting[0]).catch(() => null);
+          
+          if (!channelExists) {
+            // Limpa o chat fantasma do banco de dados e permite criar um novo
+            latestChats[latestExisting[0]].closedAt = Date.now();
+            await chatStore.save(latestChats);
+          } else {
+            return interaction.reply({
+              embeds: [createErrorEmbed(`Você já possui um chat aberto: <#${latestExisting[0]}>`)],
+              ephemeral: true
+            });
+          }
         }
 
         const nameBase = sanitizeName(`${tipo}-${interaction.user.username}`);
