@@ -36,7 +36,7 @@ module.exports = {
         return interaction.editReply({ embeds: [createErrorEmbed("O sistema de parcerias está desativado.")] });
       }
 
-      // 1. Verificação Automática e Definição de Tier
+      // Verificação Automática e Definição de Tier
       const conviteInput = interaction.options.getString("convite");
       let inviteData;
       try {
@@ -52,7 +52,7 @@ module.exports = {
         if (membros >= 1000) tier = "Ouro";
         else if (membros >= 500) tier = "Prata";
 
-        interaction.currentTier = tier; // Guardar temporariamente
+        interaction.currentTier = tier;
         interaction.memberCount = membros;
       } catch (error) {
         return interaction.editReply({ embeds: [createErrorEmbed("Link de convite inválido ou expirado.")] });
@@ -100,7 +100,10 @@ module.exports = {
         new ButtonBuilder().setCustomId(`partnership_reject_${data.id}`).setLabel("Recusar").setStyle(ButtonStyle.Danger)
       );
 
-      if (logChan) await logChan.send({ embeds: [embedLog], components: [row] });
+      // Puxa a role configurada no partnerconfig para mencionar a staff no log (caso exista)
+      const pingStaff = pConfig.staffPingRoleId ? `<@&${pConfig.staffPingRoleId}>` : "";
+      
+      if (logChan) await logChan.send({ content: pingStaff, embeds: [embedLog], components: [row] });
       return interaction.editReply({ embeds: [createSuccessEmbed(`Solicitação enviada! Detectamos Tier **${data.tier}**.`)] });
     }
   },
@@ -113,7 +116,7 @@ module.exports = {
     const partners = await partnersStore.load();
     const data = partners[id];
 
-    if (!data || data.status !== "pending") return interaction.reply({ content: "Pedido expirado.", ephemeral: true });
+    if (!data || data.status !== "pending") return interaction.reply({ content: "Pedido expirado ou já processado.", ephemeral: true });
 
     if (action === "reject") {
       const modal = new ModalBuilder().setCustomId(`partnership_modal_reject_${id}`).setTitle("Recusar Parceria");
@@ -160,14 +163,33 @@ module.exports = {
 
         // POSTAGEM PÚBLICA
         const textoFora = `**Servidor:** ${data.serverName}\n**Tier:** ${data.tier}\n**Representante:** <@${data.requesterId}>\n**Responsável:** <@${interaction.user.id}>\n**Ping:** ${pingText}\n**Link:** ${finalLink}`;
-        const embedPost = new EmbedBuilder().setColor(0x2ecc71).setDescription(`--- {☩} NOVA PARCERIA FECHADA! {☩} ---\n\n${cleanDesc}\n\n{☩}----------multimap 🤝 multimap----------{☩}`);
+        const embedPost = new EmbedBuilder().setColor(0x2ecc71).setDescription(`--- {☩} NOVA PARCERIA FECHADA! {☩} ---\n\n${cleanDesc}\n\n{☩}----------{🤝}----------{☩}`);
         if (data.banner?.startsWith("http")) embedPost.setImage(data.banner);
 
         const sentMessage = await targetChan.send({ content: textoFora, embeds: [embedPost] });
 
-        // SALVAR NO BANCO COM ID DA MENSAGEM (Para poder apagar depois no check)
+        // SALVA NO BANCO
         await partnersStore.update(id, c => ({ ...c, status: "accepted", processedBy: interaction.user.id, messageId: sentMessage.id, channelId: targetChan.id }));
         await staffStatsStore.update(interaction.user.id, c => ({ ...c, approved: (c?.approved || 0) + 1 }));
+
+        // === NOVO: ENTREGAR CARGO DE RANK AUTOMATICAMENTE ===
+        const guildConfig = await getGuildConfig(interaction.guildId);
+        const ranks = guildConfig?.partnership?.ranks;
+        
+        if (ranks) {
+          let roleToGiveId = null;
+          if (data.tier === "Bronze") roleToGiveId = ranks.bronze;
+          else if (data.tier === "Prata") roleToGiveId = ranks.prata;
+          else if (data.tier === "Ouro") roleToGiveId = ranks.ouro;
+
+          if (roleToGiveId) {
+            const member = await interaction.guild.members.fetch(data.requesterId).catch(() => null);
+            if (member) {
+              await member.roles.add(roleToGiveId).catch(() => console.log("Erro ao dar cargo. Verifique as permissões do bot e a hierarquia de cargos."));
+            }
+          }
+        }
+        // ===================================================
 
         // DM PARA O REPRESENTANTE
         const repUser = await interaction.client.users.fetch(data.requesterId).catch(() => null);
@@ -175,16 +197,16 @@ module.exports = {
           const embedDm = new EmbedBuilder()
             .setTitle("🤝 Parceria Aprovada!")
             .setColor(0x00FF00)
-            .setDescription(`Sua parceria para o servidor **${data.serverName}** (Tier ${data.tier}) foi aceita!`)
+            .setDescription(`Sua parceria para o servidor **${data.serverName}** (Tier ${data.tier}) foi aceita e seu cargo de representação foi entregue!`)
             .addFields({ name: "⚠️ Aviso Importante", value: "Caso você (Representante) saia do nosso servidor, a parceria será encerrada e a mensagem de divulgação será apagada automaticamente." });
           await repUser.send({ embeds: [embedDm] }).catch(() => null);
         }
 
         await interaction.message.edit({ content: `✅ Aprovada e postada!`, components: [], embeds: [EmbedBuilder.from(interaction.message.embeds[0]).setColor(0x00FF00)] });
-        await mentionInter.update({ content: "🚀 Concluído!", components: [] });
+        await mentionInter.update({ content: "🚀 Concluído! Parceria postada e cargo entregue.", components: [] });
 
       } catch (e) {
-        await interaction.editReply({ content: "⏳ Tempo esgotado.", components: [] }).catch(() => null);
+        await interaction.editReply({ content: "⏳ Tempo esgotado para configuração.", components: [] }).catch(() => null);
       }
     }
   },
