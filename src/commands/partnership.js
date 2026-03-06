@@ -80,7 +80,8 @@ module.exports = {
   },
 
   async handleButton(interaction) {
-    const [,, action, id] = interaction.customId.split("_");
+    // ERRO CORRIGIDO AQUI: Ajuste no array destructuring para ler o action corretamente.
+    const [, action, id] = interaction.customId.split("_");
     const partners = await partnersStore.load();
     const data = partners[id];
 
@@ -101,7 +102,7 @@ module.exports = {
       collector.on('collect', async m => {
         const targetChan = m.mentions.channels.first();
         const guildConfig = await getGuildConfig(interaction.guildId);
-        
+
         // Correção de Link e Descrição
         let finalLink = data.inviteLink.trim();
         if (!finalLink.startsWith('http')) finalLink = `https://${finalLink}`;
@@ -115,7 +116,7 @@ module.exports = {
 
         const ping = guildConfig.partnership?.pingRole ? `<@&${guildConfig.partnership.pingRole}>` : "@everyone";
         await targetChan.send({ content: `${ping}\n**Convite:** ${finalLink}`, embeds: [postEmbed] });
-        
+
         await partnersStore.update(id, c => ({ ...c, status: "accepted", processedBy: interaction.user.id }));
         await staffStatsStore.update(interaction.user.id, c => ({ ...c, approved: (c?.approved || 0) + 1 }));
 
@@ -132,7 +133,7 @@ module.exports = {
     const data = partners[id];
 
     await partnersStore.update(id, c => ({ ...c, status: "rejected", processedBy: interaction.user.id, reason }));
-    
+
     const user = await interaction.client.users.fetch(data.requesterId).catch(() => null);
     if (user) await user.send(`Sua parceria com **${data.serverName}** foi recusada. Motivo: ${reason}`).catch(() => null);
 
