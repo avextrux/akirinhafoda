@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require("discord.js");
+const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder } = require("discord.js");
 const { createEmbed, createSuccessEmbed, createErrorEmbed } = require("../embeds");
 const { createDataStore } = require("../store/dataStore");
 const { getGuildConfig, setGuildConfig } = require("../config/guildConfig");
@@ -9,6 +9,8 @@ module.exports = {
   data: new SlashCommandBuilder()
     .setName("partnership")
     .setDescription("Sistema de parcerias entre servidores")
+    
+    // Solicitar parceria
     .addSubcommand((sub) =>
       sub
         .setName("solicitar")
@@ -30,23 +32,28 @@ module.exports = {
         )
         .addIntegerOption((opt) =>
           opt.setName("membros")
-            .setDescription("Número de membros do seu servidor")
+            .setDescription("Número de membros no seu servidor")
             .setRequired(true)
             .setMinValue(1)
         )
     )
+    
+    // Verificar status
     .addSubcommand((sub) =>
       sub
         .setName("status")
-        .setDescription("Verifique o status da sua parceria")
+        .setDescription("Verifique o status da sua solicitação de parceria")
     )
+    
+    // Aceitar parceria (Admin)
     .addSubcommand((sub) =>
       sub
         .setName("aceitar")
         .setDescription("Aceite uma solicitação de parceria")
+        .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
         .addStringOption((opt) =>
-          opt.setName("servidor")
-            .setDescription("ID do servidor para aceitar")
+          opt.setName("id")
+            .setDescription("ID exclusivo da solicitação")
             .setRequired(true)
         )
         .addStringOption((opt) =>
@@ -55,36 +62,86 @@ module.exports = {
             .setRequired(true)
         )
     )
+    
+    // Recusar parceria (Admin)
     .addSubcommand((sub) =>
       sub
         .setName("recusar")
         .setDescription("Recuse uma solicitação de parceria")
+        .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
         .addStringOption((opt) =>
-          opt.setName("servidor")
-            .setDescription("ID do servidor para recusar")
+          opt.setName("id")
+            .setDescription("ID exclusivo da solicitação")
             .setRequired(true)
         )
+        .addStringOption((opt) =>
+          opt.setName("motivo")
+            .setDescription("Motivo da recusa")
+            .setRequired(false)
+        )
     )
+    
+    // Remover parceria (Admin)
     .addSubcommand((sub) =>
       sub
         .setName("remover")
-        .setDescription("Remova uma parceria existente")
+        .setDescription("Remova uma parceria ativa")
+        .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
         .addStringOption((opt) =>
-          opt.setName("servidor")
-            .setDescription("ID do servidor para remover")
+          opt.setName("id")
+            .setDescription("ID exclusivo da parceria")
             .setRequired(true)
         )
     )
+    
+    // Listar pendentes (Admin)
     .addSubcommand((sub) =>
       sub
-        .setName("listar")
-        .setDescription("Liste todas as parcerias ativas")
+        .setName("pendentes")
+        .setDescription("Lista todas as solicitações pendentes")
+        .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    )
+    
+    // Configurar permissões (Admin)
+    .addSubcommand((sub) =>
+      sub
+        .setName("config")
+        .setDescription("Configure quem pode usar o sistema de parcerias")
+        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+        .addRoleOption((opt) =>
+          opt.setName("cargo")
+            .setDescription("Cargo que pode usar comandos de parceria")
+            .setRequired(false)
+        )
+        .addBooleanOption((opt) =>
+          opt.setName("ativo")
+            .setDescription("Sistema de parcerias ativo para todos?")
+            .setRequired(false)
+        )
     ),
 
   async execute(interaction) {
     const sub = interaction.options.getSubcommand();
-    const guildId = interaction.guildId;
     const userId = interaction.user.id;
+    const guildId = interaction.guildId;
+    const partners = await partnersStore.load();
+    const guildConfig = await getGuildConfig(guildId);
+
+    // Verificar permissões globais
+    if (sub !== "solicitar" && sub !== "status") {
+      const partnershipConfig = guildConfig?.partnership || {};
+      
+      // Se não estiver ativo para todos, verificar se tem cargo
+      if (!partnershipConfig.enabledForAll && partnershipConfig.allowedRole) {
+        const member = interaction.member;
+        if (!member.roles.cache.has(partnershipConfig.allowedRole)) {
+          return interaction.reply({
+            embeds: [createErrorEmbed("Você não tem permissão para usar comandos de parceria!")],
+            ephemeral: true
+          });
+        }
+      }
+    }
 
     if (sub === "solicitar") {
       const serverName = interaction.options.getString("servidor");
@@ -92,18 +149,23 @@ module.exports = {
       const description = interaction.options.getString("descricao");
       const memberCount = interaction.options.getInteger("membros");
 
-      // Validar link de convite
+      // Validações
       if (!inviteLink.includes("discord.gg") && !inviteLink.includes("discord.com/invite")) {
         return interaction.reply({
-          embeds: [createErrorEmbed("Link de convite inválido! Use um link do Discord.")],
+          embeds: [createErrorEmbed("O link de convite deve ser do Discord!")],
           ephemeral: true
         });
       }
 
-      // Verificar se já existe solicitação
-      const partners = await partnersStore.load();
-      const existingRequest = Object.values(partners).find(p => p.requesterId === userId);
-      
+      if (memberCount < 50) {
+        return interaction.reply({
+          embeds: [createErrorEmbed("Seu servidor precisa ter pelo menos 50 membros para solicitar parceria!")],
+          ephemeral: true
+        });
+      }
+
+      // Verificar se já tem solicitação
+      const existingRequest = Object.values(partners).find(p => p.requesterId === userId && p.status === "pending");
       if (existingRequest) {
         return interaction.reply({
           embeds: [createErrorEmbed("Você já tem uma solicitação de parceria pendente!")],
@@ -111,8 +173,10 @@ module.exports = {
         });
       }
 
+      // Gerar ID exclusivo
+      const requestId = `PS-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
+
       // Criar solicitação
-      const requestId = `${guildId}_${Date.now()}`;
       await partnersStore.update(requestId, (current) => ({
         requesterId: userId,
         requesterGuild: guildId,
@@ -126,9 +190,11 @@ module.exports = {
 
       const embed = createSuccessEmbed(
         `🤝 **Solicitação de Parceria Enviada!**\n\n` +
+        `**ID da Solicitação:** \`${requestId}\`\n` +
         `**Servidor:** ${serverName}\n` +
         `**Membros:** ${memberCount}\n` +
         `**Descrição:** ${description}\n\n` +
+        `📋 **Guarde este ID!** Ele será necessário para acompanhamento.\n\n` +
         `Sua solicitação será analisada e você receberá uma resposta em breve!`
       );
 
@@ -136,7 +202,6 @@ module.exports = {
     }
 
     if (sub === "status") {
-      const partners = await partnersStore.load();
       const userRequest = Object.values(partners).find(p => p.requesterId === userId);
       
       if (!userRequest) {
@@ -162,7 +227,8 @@ module.exports = {
 
       const embed = createEmbed({
         title: "📊 Status da Parceria",
-        description: `**Status:** ${statusTexts[userRequest.status]}\n\n` +
+        description: `**ID:** \`${userRequest.id || userRequest.requestId}\`\n\n` +
+        `**Status:** ${statusTexts[userRequest.status]}\n\n` +
         `**Servidor:** ${userRequest.serverName}\n` +
         `**Membros:** ${userRequest.memberCount}\n` +
         `**Solicitado em:** ${new Date(userRequest.requestedAt).toLocaleDateString('pt-BR')}`,
@@ -173,160 +239,184 @@ module.exports = {
       return interaction.reply({ embeds: [embed], ephemeral: true });
     }
 
-    if (sub === "aceitar") {
-      if (!interaction.member.permissions.has(PermissionFlagsBits.ManageGuild)) {
+    if (sub === "pendentes") {
+      const pendingPartnerships = Object.entries(partners).filter(([key, p]) => p.status === "pending");
+      
+      if (pendingPartnerships.length === 0) {
         return interaction.reply({
-          embeds: [createErrorEmbed("Apenas administradores podem aceitar parcerias!")],
+          embeds: [createEmbed({
+            title: "📋 Solicitações Pendentes",
+            description: "Não há solicitações de parceria pendentes no momento.",
+            color: 0xffff00,
+            footer: { text: "WDA - Todos os direitos reservados" }
+          })]
+        });
+      }
+
+      const embed = createEmbed({
+        title: "📋 Solicitações Pendentes",
+        description: `**${pendingPartnerships.length}** solicitação(ões) aguardando análise:`,
+        color: 0xffff00,
+        footer: { text: "WDA - Todos os direitos reservados" }
+      });
+
+      // Adicionar campos para cada solicitação
+      pendingPartnerships.forEach(([requestId, partnership], index) => {
+        embed.addFields({
+          name: `${index + 1}. ${partnership.serverName}`,
+          value: `**ID:** \`${requestId}\`\n` +
+                 `**Membros:** ${partnership.memberCount}\n` +
+                 `**Solicitado:** ${new Date(partnership.requestedAt).toLocaleDateString('pt-BR')}\n` +
+                 `**Solicitante:** <@${partnership.requesterId}>`,
+          inline: false
+        });
+      });
+
+      return interaction.reply({ embeds: [embed] });
+    }
+
+    if (sub === "aceitar") {
+      const requestId = interaction.options.getString("id");
+      const channelId = interaction.options.getString("canal");
+      
+      const partnership = Object.values(partners).find(p => p.id === requestId || p.requestId === requestId);
+      
+      if (!partnership) {
+        return interaction.reply({
+          embeds: [createErrorEmbed("Solicitação de parceria não encontrada! Verifique o ID.")],
           ephemeral: true
         });
       }
 
-      const targetGuildId = interaction.options.getString("servidor");
-      const channelId = interaction.options.getString("canal");
-      const partners = await partnersStore.load();
-      
-      const partnership = Object.values(partners).find(p => p.requesterGuild === targetGuildId && p.status === "pending");
-      
-      if (!partnership) {
+      if (partnership.status !== "pending") {
         return interaction.reply({
-          embeds: [createErrorEmbed("Solicitação de parceria não encontrada!")],
+          embeds: [createErrorEmbed("Esta solicitação já foi processada!")],
           ephemeral: true
         });
       }
 
       // Atualizar status
-      const requestId = Object.keys(partners).find(key => partners[key].requesterGuild === targetGuildId);
-      await partnersStore.update(requestId, {
-        ...partners[requestId],
+      await partnersStore.update(requestId, (current) => ({
+        ...current,
         status: "accepted",
         acceptedAt: new Date().toISOString(),
         acceptedBy: userId,
         partnerChannelId: channelId
-      });
+      }));
 
       // Enviar confirmação
       const embed = createSuccessEmbed(
         `✅ **Parceria Aceita!**\n\n` +
+        `**ID:** \`${requestId}\`\n` +
         `**Servidor:** ${partnership.serverName}\n` +
-        `**Aceita por:** ${interaction.user.username}\n\n` +
-        `O canal de parceria foi configurado e a parceria está ativa!`
+        `**Aceita por:** ${interaction.user.username}\n` +
+        `**Canal de parceria:** <#${channelId}>\n\n` +
+        `A parceria está ativa!`
       );
 
       return interaction.reply({ embeds: [embed] });
     }
 
     if (sub === "recusar") {
-      if (!interaction.member.permissions.has(PermissionFlagsBits.ManageGuild)) {
+      const requestId = interaction.options.getString("id");
+      const reason = interaction.options.getString("motivo") || "Sem motivo especificado";
+      
+      const partnership = Object.values(partners).find(p => p.id === requestId || p.requestId === requestId);
+      
+      if (!partnership) {
         return interaction.reply({
-          embeds: [createErrorEmbed("Apenas administradores podem recusar parcerias!")],
+          embeds: [createErrorEmbed("Solicitação de parceria não encontrada! Verifique o ID.")],
           ephemeral: true
         });
       }
 
-      const targetGuildId = interaction.options.getString("servidor");
-      const partners = await partnersStore.load();
-      
-      const partnership = Object.values(partners).find(p => p.requesterGuild === targetGuildId && p.status === "pending");
-      
-      if (!partnership) {
+      if (partnership.status !== "pending") {
         return interaction.reply({
-          embeds: [createErrorEmbed("Solicitação de parceria não encontrada!")],
+          embeds: [createErrorEmbed("Esta solicitação já foi processada!")],
           ephemeral: true
         });
       }
 
       // Atualizar status
-      const requestId = Object.keys(partners).find(key => partners[key].requesterGuild === targetGuildId);
-      await partnersStore.update(requestId, {
-        ...partners[requestId],
+      await partnersStore.update(requestId, (current) => ({
+        ...current,
         status: "rejected",
         rejectedAt: new Date().toISOString(),
-        rejectedBy: userId
-      });
+        rejectedBy: userId,
+        rejectionReason: reason
+      }));
 
-      const embed = createSuccessEmbed(
-        `❌ **Parceria Recusada!**\n\n` +
+      // Enviar confirmação
+      const embed = createEmbed({
+        title: "❌ Parceria Recusada",
+        description: `**ID:** \`${requestId}\`\n\n` +
         `**Servidor:** ${partnership.serverName}\n` +
-        `**Recusada por:** ${interaction.user.username}\n\n` +
-        `A solicitação foi recusada e o servidor foi notificado.`
-      );
+        `**Recusada por:** ${interaction.user.username}\n` +
+        `**Motivo:** ${reason}`,
+        color: 0xff0000,
+        footer: { text: "WDA - Todos os direitos reservados" }
+      });
 
       return interaction.reply({ embeds: [embed] });
     }
 
     if (sub === "remover") {
-      if (!interaction.member.permissions.has(PermissionFlagsBits.ManageGuild)) {
+      const requestId = interaction.options.getString("id");
+      
+      const partnership = Object.values(partners).find(p => p.id === requestId || p.requestId === requestId);
+      
+      if (!partnership) {
         return interaction.reply({
-          embeds: [createErrorEmbed("Apenas administradores podem remover parcerias!")],
+          embeds: [createErrorEmbed("Parceria não encontrada! Verifique o ID.")],
           ephemeral: true
         });
       }
 
-      const targetGuildId = interaction.options.getString("servidor");
-      const partners = await partnersStore.load();
-      
-      const partnership = Object.values(partners).find(p => p.requesterGuild === targetGuildId && p.status === "accepted");
-      
-      if (!partnership) {
+      if (partnership.status !== "accepted") {
         return interaction.reply({
-          embeds: [createErrorEmbed("Parceria ativa não encontrada!")],
+          embeds: [createErrorEmbed("Apenas parcerias ativas podem ser removidas!")],
           ephemeral: true
         });
       }
 
       // Atualizar status
-      const requestId = Object.keys(partners).find(key => partners[key].requesterGuild === targetGuildId);
-      await partnersStore.update(requestId, {
-        ...partners[requestId],
+      await partnersStore.update(requestId, (current) => ({
+        ...current,
         status: "removed",
         removedAt: new Date().toISOString(),
         removedBy: userId
-      });
+      }));
 
-      const embed = createSuccessEmbed(
-        `🚫 **Parceria Removida!**\n\n` +
+      // Enviar confirmação
+      const embed = createEmbed({
+        title: "🚫 Parceria Removida",
+        description: `**ID:** \`${requestId}\`\n\n` +
         `**Servidor:** ${partnership.serverName}\n` +
-        `**Removida por:** ${interaction.user.username}\n\n` +
-        `A parceria foi removida com sucesso.`
-      );
+        `**Removida por:** ${interaction.user.username}`,
+        color: 0xff6600,
+        footer: { text: "WDA - Todos os direitos reservados" }
+      });
 
       return interaction.reply({ embeds: [embed] });
     }
 
-    if (sub === "listar") {
-      if (!interaction.member.permissions.has(PermissionFlagsBits.ManageGuild)) {
-        return interaction.reply({
-          embeds: [createErrorEmbed("Apenas administradores podem listar parcerias!")],
-          ephemeral: true
-        });
-      }
+    if (sub === "config") {
+      const role = interaction.options.getRole("cargo");
+      const enabledForAll = interaction.options.getBoolean("ativo") ?? false;
 
-      const partners = await partnersStore.load();
-      const activePartnerships = Object.values(partners).filter(p => p.status === "accepted");
-      
-      if (activePartnerships.length === 0) {
-        return interaction.reply({
-          embeds: [createEmbed({
-            title: "📋 Parcerias Ativas",
-            description: "Nenhuma parceria ativa no momento.",
-            color: 0x95a5a6,
-            footer: { text: "WDA - Todos os direitos reservados" }
-          })],
-          ephemeral: true
-        });
-      }
-
-      const embed = createEmbed({
-        title: "📋 Parcerias Ativas",
-        description: activePartnerships.map((partner, index) => 
-          `**${index + 1}.** ${partner.serverName}\n` +
-          `👥 ${partner.memberCount} membros\n` +
-          `📅 Aceita em: ${new Date(partner.acceptedAt).toLocaleDateString('pt-BR')}\n` +
-          `📝 ${partner.description}\n`
-        ).join("\n"),
-        color: 0x00ff00,
-        footer: { text: "WDA - Todos os direitos reservados" }
+      await setGuildConfig(guildId, {
+        partnership: {
+          allowedRole: role?.id || null,
+          enabledForAll: enabledForAll
+        }
       });
+
+      const embed = createSuccessEmbed(
+        `⚙️ **Configurações de Parceria Atualizadas!**\n\n` +
+        `**Cargo Permitido:** ${role ? `<@&${role.id}>` : "Qualquer um"}\n` +
+        `**Ativo para Todos:** ${enabledForAll ? "✅ Sim" : "❌ Não"}\n\n` +
+        `${enabledForAll ? "Todos podem usar comandos de parceria" : "Apenas o cargo especificado pode usar comandos de parceria"}`
+      );
 
       return interaction.reply({ embeds: [embed], ephemeral: true });
     }
