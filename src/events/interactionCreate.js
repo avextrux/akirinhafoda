@@ -16,48 +16,41 @@ module.exports = {
       return;
     }
 
-    // 2. SISTEMA GERAL DE INTERAÇÕES (Botões, Menus, Modais)
-    // Esta parte varre os comandos e executa a função correta automaticamente
-    
-    let command;
+    // 2. SISTEMA UNIVERSAL (Botões, Menus e Modais)
+    if (interaction.isButton() || interaction.isAnySelectMenu() || interaction.isModalSubmit()) {
+      
+      // Determina qual função procurar dentro dos arquivos de comando
+      const handlerName = interaction.isButton() ? "handleButton" : 
+                          interaction.isAnySelectMenu() ? "handleSelectMenu" : 
+                          "handleModal";
 
-    // Tenta encontrar o comando pelo nome no customId (Ex: "sejawda_tipo" -> busca comando "sejawda")
-    const commandName = interaction.customId.split("_")[0];
-    command = client.commands.get(commandName);
+      // Pega todos os seus comandos carregados
+      const allCommands = client.commands.values();
 
-    // Se não achar pelo prefixo, faz a varredura em todos (Fallback de segurança)
-    const handlers = [
-      { check: interaction.isButton(), func: "handleButton" },
-      { check: interaction.isAnySelectMenu(), func: "handleSelectMenu" },
-      { check: interaction.isModalSubmit(), func: "handleModal" },
-      { check: interaction.isAutocomplete(), func: "autocomplete" }
-    ];
-
-    for (const handler of handlers) {
-      if (handler.check) {
-        // Se achamos o comando pelo prefixo, executamos direto
-        if (command && typeof command[handler.func] === "function") {
+      for (const command of allCommands) {
+        // Verifica se o comando tem a função necessária (ex: handleButton)
+        if (typeof command[handlerName] === "function") {
           try {
-            await command[handler.func](interaction);
-            return; 
-          } catch (e) {
-            console.error(`Erro no handler ${handler.func} do comando ${commandName}:`, e);
-          }
-        }
+            // Tenta executar. Se o comando responder à interação, o loop para.
+            await command[handlerName](interaction);
 
-        // Se não achamos pelo prefixo ou falhou, tenta em todos (Para comandos como o Ticket que usam IDs diferentes)
-        for (const cmd of client.commands.values()) {
-          if (typeof cmd[handler.func] === "function") {
-            try {
-              await cmd[handler.func](interaction);
-              // Se o comando respondeu ou deu erro mas processou, paramos por aqui
-              if (interaction.replied || interaction.deferred) return;
-            } catch (e) {
-              // Ignora erros de comandos que não reconhecem o ID e continua procurando
-              continue;
+            // Se o comando respondeu (replied) ou pediu tempo (deferred), missão cumprida.
+            if (interaction.replied || interaction.deferred) {
+              return; 
             }
+          } catch (error) {
+            // Se o erro for "Unknown Interaction", o tempo expirou (3s), paramos tudo.
+            if (error.code === 10062) return;
+
+            // Caso contrário, apenas ignora e tenta o próximo comando da lista.
+            continue;
           }
         }
+      }
+
+      // Se chegou aqui e ninguém respondeu, avisamos (opcional)
+      if (!interaction.replied && !interaction.deferred) {
+        // console.log(`Interação ${interaction.customId} não foi assumida por nenhum comando.`);
       }
     }
   },
