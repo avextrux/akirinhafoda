@@ -1,56 +1,128 @@
+const { ActivityType, EmbedBuilder } = require("discord.js");
 const { createDataStore } = require("../store/dataStore");
 
-function createPresenceService() {
-  const store = createDataStore("presence.json");
+// Usando o mongoStore para persistência real no MongoDB
+const mongoStore = require("../store/mongoStore"); 
 
-  async function getPresence() {
-    const data = await store.get("presence");
-    if (!data || typeof data !== "object") return null;
-    return data;
-  }
+let rotationInterval = null;
+let maintenanceInterval = null;
 
-  async function setPresence(patch) {
-    if (!patch || typeof patch !== "object") throw new Error("patch inválido");
-    const current = (await getPresence()) || {};
-    const next = { ...current, ...patch };
-    await store.set("presence", next);
-    return next;
-  }
+const presenceService = {
+  /**
+   * Obtém os dados de presença salvos no banco
+   */
+  async getPresence() {
+    const data = await mongoStore.get("presence");
+    return data || { status: "online", activity: null, random: { enabled: false, phrases: [] } };
+  },
 
-  async function clearPresence() {
-    await store.set("presence", null);
-    return true;
-  }
+  /**
+   * Salva uma nova presença fixa no banco
+   */
+  async setPresence(presenceData) {
+    const current = await this.getPresence();
+    const updated = { ...current, ...presenceData };
+    return await mongoStore.set("presence", updated);
+  },
 
-  async function applyPresence(client) {
-    if (!client?.user) return { ok: false, reason: "client_unavailable" };
-    const saved = await getPresence();
-    if (!saved) return { ok: false, reason: "no_presence_saved" };
+  /**
+   * Limpa a presença (Resolve o erro de 'null' no Mongoose)
+   */
+  async clearPresence() {
+    const emptyPresence = { status: "online", activity: null, random: { enabled: false, phrases: [] } };
+    return await mongoStore.set("presence", emptyPresence);
+  },
 
-    const status = saved.status;
-    const activity = saved.activity;
+  /**
+   * Aplica a presença salva no cliente do Discord
+   */
+  async applyPresence(client) {
+    const saved = await this.getPresence();
+    if (!saved || saved.random?.enabled) return;
 
-    const activities = [];
-    if (activity?.name) {
-      const entry = {
-        name: String(activity.name),
-      };
-      if (typeof activity.type === "number") entry.type = activity.type;
-      if (activity.url) entry.url = String(activity.url);
-      activities.push(entry);
+    if (saved.activity) {
+      client.user.setPresence({
+        status: saved.status || "online",
+        activities: [saved.activity]
+      });
+    } else {
+      client.user.setPresence({ status: saved.status || "online", activities: [] });
     }
+  },
 
-    await client.user
-      .setPresence({
-        status: status || undefined,
-        activities,
-      })
-      .catch(() => {});
+  /**
+   * --- SISTEMA DE ROTAÇÃO ALEATÓRIA ---
+   */
 
-    return { ok: true };
+  async addRandomText(text) {
+    const data = await this.getPresence();
+    if (!data.random) data.random = { enabled: false, phrases: [] };
+    data.random.phrases.push(text);
+    return await mongoStore.set("presence", data);
+  },
+
+  async toggleRotation() {
+    const data = await this.getPresence();
+    if (!data.random) data.random = { enabled: false, phrases: [] };
+    data.random.enabled = !data.random.enabled;
+    await mongoStore.set("presence", data);
+    return data.random.enabled;
+  },
+
+  startRotation(client) {
+    if (rotationInterval) clearInterval(rotationInterval);
+
+    rotationInterval = setInterval(async () => {
+      const data = await this.getPresence();
+      if (!data.random?.enabled || data.random.phrases.length === 0) return;
+
+      const frase = data.random.phrases[Math.floor(Math.random() * data.random.phrases.length)];
+      
+      client.user.setActivity(frase, { type: ActivityType.Custom });
+    }, 30000); // Troca a cada 30 segundos
+  },
+
+  /**
+   * --- SISTEMA DE MANUTENÇÃO (Loop 2 min) ---
+   */
+
+  async startMaintenanceLoop(client, data) {
+    if (maintenanceInterval) clearInterval(maintenanceInterval);
+
+    maintenanceInterval = setInterval(async () => {
+      try {
+        const channel = client.channels.cache.get(data.channelId);
+        if (!channel) return;
+
+        const message = await channel.messages.fetch(data.messageId).catch(() => null);
+        if (!message) return;
+
+        const uptimeMinutes = Math.floor((Date.now() - data.startTime) / 1000 / 60);
+        
+        const updatedEmbed = new EmbedBuilder()
+          .setTitle("⚠️ Aviso de Manutenção")
+          .setDescription("O bot está passando por uma manutenção técnica para melhorias.")
+          .addFields(
+            { name: "Status", value: "🔴 Instável / Em Manutenção", inline: true },
+            { name: "Duração Atual", value: `\`${uptimeMinutes} minutos\``, inline: true },
+            { name: "Última Atualização", value: `<t:${Math.floor(Date.now() / 1000)}:R>`, inline: false }
+          )
+          .setFooter({ text: "A cada 2 minutos esta mensagem é atualizada." })
+          .setColor(0xFFA500);
+
+        await message.edit({ embeds: [updatedEmbed] });
+      } catch (err) {
+        console.error("Erro no loop de manutenção:", err);
+      }
+    }, 120000); // Exatos 2 minutos
+  },
+
+  stopMaintenanceLoop() {
+    if (maintenanceInterval) {
+      clearInterval(maintenanceInterval);
+      maintenanceInterval = null;
+    }
   }
+};
 
-  return { getPresence, setPresence, clearPresence, applyPresence };
-}
-
-module.exports = { createPresenceService };
+module.exports = presenceService;
