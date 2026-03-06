@@ -60,6 +60,18 @@ module.exports = {
             .setDescription("Canal de parceria")
             .setRequired(true)
         )
+        .addStringOption((opt) =>
+          opt.setName("mencao")
+            .setDescription("Qual @ mencionar na aceitação?")
+            .setRequired(false)
+            .addChoices(
+              { name: "@everyone", value: "everyone" },
+              { name: "@here", value: "here" },
+              { name: "@parcerias", value: "parcerias" },
+              { name: "@atualizacoes", value: "atualizacoes" },
+              { name: "Não mencionar", value: "none" }
+            )
+        )
     )
     
     // Recusar parceria (Admin)
@@ -288,6 +300,7 @@ module.exports = {
 
       const requestId = interaction.options.getString("id").toUpperCase();
       const channel = interaction.options.getChannel("canal");
+      const mention = interaction.options.getString("mencao") || "none";
       
       const partnership = Object.values(partners).find(p => p.id === requestId || p.requestId === requestId);
       
@@ -314,6 +327,25 @@ module.exports = {
         partnerChannelId: channel.id
       }));
 
+      // Formatar menção
+      let mentionText = "";
+      switch (mention) {
+        case "everyone":
+          mentionText = "@everyone";
+          break;
+        case "here":
+          mentionText = "@here";
+          break;
+        case "parcerias":
+          mentionText = "<@&parcerias>";
+          break;
+        case "atualizacoes":
+          mentionText = "<@&atualizacoes>";
+          break;
+        default:
+          mentionText = "";
+      }
+
       // Enviar confirmação
       const embed = createSuccessEmbed(
         `✅ **Parceria Aceita!**\n\n` +
@@ -324,7 +356,24 @@ module.exports = {
         `A parceria está ativa!`
       );
 
-      return interaction.reply({ embeds: [embed] });
+      // Enviar mensagem no canal com menção
+      await channel.send({
+        content: mentionText ? `${mentionText} Nova parceria estabelecida!` : "Nova parceria estabelecida!",
+        embeds: [embed]
+      });
+
+      // Confirmar para o admin
+      return interaction.reply({
+        embeds: [createSuccessEmbed(
+          `✅ **Parceria Aceita com Sucesso!**\n\n` +
+          `**ID:** \`${requestId}\`\n` +
+          `**Servidor:** ${partnership.serverName}\n` +
+          `**Canal:** ${channel}\n` +
+          `**Menção:** ${mentionText || "Nenhuma"}\n\n` +
+          `Mensagem enviada no canal com sucesso!`
+        )],
+        ephemeral: true
+      });
     }
 
     if (sub === "recusar") {
