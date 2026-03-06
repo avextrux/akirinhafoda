@@ -16,71 +16,46 @@ module.exports = {
       return;
     }
 
-    // 2. SISTEMA DE BOTÕES
-    if (interaction.isButton()) {
+    // 2. SISTEMA DE INTERAÇÕES (Botões, Menus e Modais)
+    if (interaction.isButton() || interaction.isAnySelectMenu() || interaction.isModalSubmit()) {
       const customId = interaction.customId;
+      let command = null;
 
-      // Filtro Parcerias (Captura parceria_approve, parceria_reject, etc)
-      if (customId.includes("partnership_")) {
-        const cmd = client.commands.get("partnership");
-        if (cmd) return await cmd.handleButton(interaction).catch(() => null);
-      }
-      
-      // Filtro Tickets
-      if (customId.startsWith("open_ticket_") || customId.includes("close_ticket")) {
-        const cmd = client.commands.get("ticket");
-        if (cmd) return await cmd.handleButton(interaction).catch(() => null);
-      }
-
-      // Filtro SejaWDA
-      if (customId.startsWith("sejawda_")) {
-        const cmd = client.commands.get("sejawda");
-        if (cmd) return await cmd.handleButton(interaction).catch(() => null);
+      // IDENTIFICAÇÃO DIRETA (Garante que o bot não se perca)
+      if (customId.includes("partnership")) {
+        command = client.commands.get("partnership");
+      } else if (customId.includes("ticket")) {
+        command = client.commands.get("ticket");
+      } else if (customId.includes("sejawda")) {
+        command = client.commands.get("sejawda");
+      } else {
+        // Se não for nenhum dos 3, tenta pegar a primeira palavra antes do "_"
+        const commandName = customId.split("_")[0];
+        command = client.commands.get(commandName);
       }
 
-      // Varredura Geral para outros painéis
-      for (const cmd of client.commands.values()) {
-        if (typeof cmd.handleButton === "function") {
-          try {
-            await cmd.handleButton(interaction);
-            if (interaction.replied || interaction.deferred) return;
-          } catch (e) { continue; }
+      const handlerName = interaction.isButton() ? "handleButton" : 
+                          interaction.isAnySelectMenu() ? "handleSelectMenu" : 
+                          "handleModal";
+
+      // Executa o comando identificado
+      if (command && typeof command[handlerName] === "function") {
+        try {
+          await command[handlerName](interaction);
+          if (interaction.replied || interaction.deferred) return;
+        } catch (e) {
+          console.error(`Erro no handler ${handlerName} do comando ${command.data.name}:`, e);
         }
       }
-    }
 
-    // 3. MENUS DE SELEÇÃO
-    if (interaction.isAnySelectMenu()) {
-      const customId = interaction.customId;
-
-      if (customId.startsWith("sejawda_")) {
-        const cmd = client.commands.get("sejawda");
-        if (cmd) return await cmd.handleSelectMenu(interaction).catch(() => null);
-      }
-
+      // VARREDURA DE SEGURANÇA (Para os outros comandos)
       for (const cmd of client.commands.values()) {
-        if (typeof cmd.handleSelectMenu === "function") {
+        if (typeof cmd[handlerName] === "function") {
           try {
-            await cmd.handleSelectMenu(interaction);
-            if (interaction.replied || interaction.deferred) return;
-          } catch (e) { continue; }
-        }
-      }
-    }
-
-    // 4. MODAIS
-    if (interaction.isModalSubmit()) {
-      const customId = interaction.customId;
-
-      if (customId.includes("partnership_modal_")) {
-        const cmd = client.commands.get("partnership");
-        if (cmd) return await cmd.handleModal(interaction).catch(() => null);
-      }
-
-      for (const cmd of client.commands.values()) {
-        if (typeof cmd.handleModal === "function") {
-          try {
-            await cmd.handleModal(interaction);
+            // Pula os que já tentamos acima
+            if (["partnership", "ticket", "sejawda"].includes(cmd.data.name)) continue;
+            
+            await cmd[handlerName](interaction);
             if (interaction.replied || interaction.deferred) return;
           } catch (e) { continue; }
         }
