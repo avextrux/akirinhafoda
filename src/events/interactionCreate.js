@@ -23,20 +23,20 @@ module.exports = {
 
       // Descobre qual comando deve cuidar desta interação pelo prefixo do ID
       if (customId.includes("partnership")) {
-        // CORREÇÃO: Aponta para 'partnerconfig' que é o nome real do comando no builder
-        commandName = "partnerconfig"; 
+        // Voltou a ser "partnership" para bater com o seu código mais recente!
+        commandName = "partnership"; 
       } else if (customId.includes("ticket") || customId.includes("open_") || customId.includes("close_")) {
         commandName = "ticket";
       } else if (customId.includes("sejawda")) {
         commandName = "sejawda";
       } else {
-        // Para os outros 34 comandos, tenta pegar a primeira palavra antes do "_"
+        // Para os outros comandos, tenta pegar a primeira palavra antes do "_"
         commandName = customId.split("_")[0];
       }
 
       const command = client.commands.get(commandName);
       if (!command) {
-        console.log(`[InteractionCreate] Comando não encontrado para a interação: ${customId}`);
+        console.log(`[InteractionCreate] Comando de interação não encontrado para: ${commandName} (Custom ID: ${customId})`);
         return;
       }
 
@@ -49,12 +49,12 @@ module.exports = {
         try {
           return await command[handlerName](interaction);
         } catch (e) {
-          // Se der erro 10062 (Unknown Interaction), o Discord demorou a responder, ignoramos o crash
+          // Se der erro 10062 (Unknown Interaction), o Discord demorou a responder
           if (e.code === 10062) return;
           console.error(`Erro no ${handlerName} do comando ${commandName}:`, e);
         }
       } else {
-        console.log(`[InteractionCreate] A função ${handlerName} não existe no arquivo do comando ${commandName}.`);
+        console.log(`[InteractionCreate] O arquivo ${commandName}.js não possui a função ${handlerName}()`);
       }
     }
   },
