@@ -8,52 +8,48 @@ module.exports = {
   data: new SlashCommandBuilder()
     .setName("partnerconfig")
     .setDescription("configuracoes administrativas do sistema de parceria")
+    // GARANTE QUE SÓ QUEM GERENCIA O SERVIDOR VEJA O COMANDO
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .addSubcommand(sub =>
       sub.setName("set")
-        .setDescription("configura o canal de logs e cargos da staff")
+        .setDescription("configura o canal de logs e status do sistema")
         .addChannelOption(o => o.setName("logs").setDescription("canal onde os pedidos irao chegar"))
-        .addRoleOption(o => o.setName("staff").setDescription("cargo que sera mencionado nos pedidos"))
         .addBooleanOption(o => o.setName("ativo").setDescription("define se o sistema esta aberto ao publico"))
+        .addRoleOption(o => o.setName("staff_ping").setDescription("cargo que sera mencionado quando chegar um pedido"))
     )
     .addSubcommand(sub =>
       sub.setName("ranks")
-        .setDescription("configura os cargos de ranking para quem faz parceria")
-        .addRoleOption(o => o.setName("bronze").setDescription("cargo para mais de 350 membros").setRequired(true))
-        .addRoleOption(o => o.setName("prata").setDescription("cargo para mais de 750 membros").setRequired(true))
-        .addRoleOption(o => o.setName("ouro").setDescription("cargo para mais de 1000 membros").setRequired(true))
+        .setDescription("configura os cargos de ranking (Tiers)")
+        .addRoleOption(o => o.setName("bronze").setDescription("cargo para 350+ membros").setRequired(true))
+        .addRoleOption(o => o.setName("prata").setDescription("cargo para 500+ membros").setRequired(true))
+        .addRoleOption(o => o.setName("ouro").setDescription("cargo para 1000+ membros").setRequired(true))
     )
     .addSubcommand(sub =>
       sub.setName("info")
         .setDescription("consulta os detalhes de uma parceria especifica")
-        .addStringOption(o => o.setName("id").setDescription("digite o id da parceria gerado no log").setRequired(true))
+        .addStringOption(o => o.setName("id").setDescription("ID da parceria (ex: PARC12345)").setRequired(true))
     ),
 
   async execute(interaction) {
     const sub = interaction.options.getSubcommand();
     const { guildId } = interaction;
+    
+    // Carrega a config atual ou cria uma base
     let guildConfig = await getGuildConfig(guildId) || {};
-    let pConfig = guildConfig.partnership || {};
+    if (!guildConfig.partnership) guildConfig.partnership = { enabledForAll: false, ranks: {} };
+    let pConfig = guildConfig.partnership;
 
     if (sub === "set") {
       const logChan = interaction.options.getChannel("logs");
-      const role = interaction.options.getRole("staff");
       const active = interaction.options.getBoolean("ativo");
+      const staffRole = interaction.options.getRole("staff_ping");
 
       if (logChan) pConfig.logChannelId = logChan.id;
       if (active !== null) pConfig.enabledForAll = active;
-      
-      if (role) {
-        if (!Array.isArray(pConfig.staffRoles)) pConfig.staffRoles = [];
-        if (pConfig.staffRoles.includes(role.id)) {
-          pConfig.staffRoles = pConfig.staffRoles.filter(id => id !== role.id);
-        } else {
-          pConfig.staffRoles.push(role.id);
-        }
-      }
+      if (staffRole) pConfig.staffPingRoleId = staffRole.id; // Salva para o ping no log
 
       await setGuildConfig(guildId, { partnership: pConfig });
-      return interaction.reply({ content: "As configurações foram atualizadas e salvas.", ephemeral: true });
+      return interaction.reply({ content: "✅ Configurações básicas de parceria atualizadas.", ephemeral: true });
     }
 
     if (sub === "ranks") {
@@ -62,30 +58,37 @@ module.exports = {
         prata: interaction.options.getRole("prata").id,
         ouro: interaction.options.getRole("ouro").id
       };
-      
+
       await setGuildConfig(guildId, { partnership: pConfig });
-      return interaction.reply({ content: "Os cargos de ranking foram vinculados.", ephemeral: true });
+      return interaction.reply({ content: "✅ Cargos de Ranking (Bronze, Prata e Ouro) configurados com sucesso.", ephemeral: true });
     }
 
     if (sub === "info") {
       const partners = await partnersStore.load();
       const searchId = interaction.options.getString("id").toUpperCase();
       const data = partners[searchId];
-      
-      if (!data) return interaction.reply({ content: "Nenhuma parceria encontrada com este ID.", ephemeral: true });
+
+      if (!data) return interaction.reply({ content: "❌ Nenhuma parceria encontrada com este ID.", ephemeral: true });
 
       const embed = new EmbedBuilder()
-        .setTitle(`Informações do ID: ${data.id}`)
+        .setTitle(`Ficha Técnica - ${data.id}`)
+        .setColor(data.status === "accepted" ? 0x00FF00 : (data.status === "pending" ? 0xFFFF00 : 0xFF0000))
         .addFields(
-          { name: "Nome do Servidor", value: data.serverName, inline: true },
-          { name: "Membros Informados", value: `${data.memberCount}`, inline: true },
-          { name: "Situação", value: data.status, inline: true },
-          { name: "Solicitante", value: `<@${data.requesterId}>`, inline: true }
+          { name: "Servidor", value: data.serverName, inline: true },
+          { name: "Tier", value: data.tier || "Não definido", inline: true },
+          { name: "Membros Reais", value: `${data.memberCount}`, inline: true },
+          { name: "Representante", value: `<@${data.requesterId}>`, inline: true },
+          { name: "Status", value: data.status.toUpperCase(), inline: true },
+          { name: "Link", value: `[Clique aqui](${data.inviteLink})`, inline: true }
         )
-        .setTimestamp(new Date(data.date));
-        
+        .setFooter({ text: `Solicitado em: ${new Date(data.date).toLocaleDateString('pt-BR')}` });
+
       if (data.processedBy) {
-        embed.addFields({ name: "Processado por", value: `<@${data.processedBy}>`, inline: true });
+        embed.addFields({ name: "Processado por", value: `<@${data.processedBy}>`, inline: false });
+      }
+      
+      if (data.reason) {
+        embed.addFields({ name: "Motivo da Recusa", value: data.reason, inline: false });
       }
 
       return interaction.reply({ embeds: [embed], ephemeral: true });
