@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType, StringSelectMenuBuilder, ModalBuilder, TextInputBuilder, TextInputStyle } = require("discord.js");
+const { SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType, StringSelectMenuBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, PermissionFlagsBits } = require("discord.js");
 const { createEmbed, createSuccessEmbed, createErrorEmbed } = require("../embeds");
 
 // Constantes para Velha
@@ -112,8 +112,17 @@ module.exports = {
     .addSubcommand((sub) =>
       sub
         .setName("say")
-        .setDescription("Faz o bot falar algo")
-        .addStringOption((opt) => opt.setName("texto").setDescription("O que o bot deve dizer").setRequired(true))
+        .setDescription("Faz o bot falar uma mensagem ou enviar uma Embed via JSON (Admin)")
+        .addStringOption((opt) => 
+            opt.setName("texto")
+            .setDescription("O que o bot deve dizer (deixe vazio se for usar apenas JSON)")
+            .setRequired(false)
+        )
+        .addAttachmentOption((opt) => 
+            opt.setName("json")
+            .setDescription("Arquivo .json com a estrutura da Embed (Opcional)")
+            .setRequired(false)
+        )
     )
     .addSubcommand((sub) =>
       sub
@@ -156,7 +165,7 @@ module.exports = {
         "É certo", "Você pode confiar nisso", "Provavelmente não", "Tudo aponta para um não",
         "Sem dúvida", "Absolutamente", "Eu não sei"
       ];
-      
+
       const result = answers[Math.floor(Math.random() * answers.length)];
 
       await interaction.reply({ 
@@ -174,7 +183,7 @@ module.exports = {
     // AVATAR
     if (sub === "avatar") {
       const user = interaction.options.getUser("usuario") || interaction.user;
-      
+
       await interaction.reply({ 
         embeds: [createEmbed({
           title: `🖼 Avatar de ${user.username}`,
@@ -184,38 +193,78 @@ module.exports = {
       });
     }
 
-    // SAY
+    // SAY COM SUPORTE A JSON E TRAVA DE ADMIN
     if (sub === "say") {
+      if (!interaction.member.permissions.has(PermissionFlagsBits.ManageMessages)) {
+          return interaction.reply({ 
+              embeds: [createErrorEmbed("Você não tem permissão para fazer o bot falar.")], 
+              ephemeral: true 
+          });
+      }
+
       const text = interaction.options.getString("texto");
-      
-      if (text.length > 2000) {
-        return interaction.reply({ content: "O texto é muito longo (máx 2000 caracteres).", ephemeral: true });
+      const jsonFile = interaction.options.getAttachment("json");
+
+      if (!text && !jsonFile) {
+          return interaction.reply({ 
+              embeds: [createErrorEmbed("Você precisa fornecer um texto ou um arquivo JSON.")], 
+              ephemeral: true 
+          });
       }
 
-      const blacklistedWords = ["@everyone", "@here", "<@&", "<@!"];
-      const containsBlacklist = blacklistedWords.some(word => text.includes(word));
-      
-      if (containsBlacklist) {
-        return interaction.reply({ 
-          embeds: [createEmbed({
-            title: "❌ Conteúdo Bloqueado",
-            description: "O texto contém menções massivas ou conteúdo não permitido.",
-            color: 0xe74c3c
-          })],
-          ephemeral: true
-        });
+      try {
+          await interaction.deferReply({ ephemeral: true });
+
+          let optionsToSend = {};
+
+          // Processamento do Texto Normal
+          if (text) {
+              if (text.length > 2000) {
+                  return interaction.editReply({ embeds: [createErrorEmbed("O texto é muito longo (máx 2000 caracteres).")] });
+              }
+
+              const blacklistedWords = ["@everyone", "@here"];
+              if (blacklistedWords.some(word => text.includes(word))) {
+                  return interaction.editReply({ embeds: [createErrorEmbed("O texto contém menções massivas não permitidas.")] });
+              }
+
+              optionsToSend.content = text.replace(/`{3,}/g, '').replace(/\*\*(.*?)\*\*/g, '$1');
+          }
+
+          // Processamento do JSON (Embed)
+          if (jsonFile) {
+              if (!jsonFile.name.endsWith('.json')) {
+                  return interaction.editReply({ embeds: [createErrorEmbed("O arquivo precisa ter a extensão `.json`.")] });
+              }
+
+              const response = await fetch(jsonFile.url);
+              const jsonData = await response.json();
+
+              // Suporta tanto o formato do Discohook (objeto com .embeds) quanto arrays diretos
+              if (Array.isArray(jsonData)) {
+                  optionsToSend.embeds = jsonData;
+              } else if (jsonData.embeds) {
+                  optionsToSend = { ...optionsToSend, ...jsonData };
+              } else {
+                  optionsToSend.embeds = [jsonData];
+              }
+          }
+
+          await interaction.channel.send(optionsToSend);
+          await interaction.editReply({ embeds: [createSuccessEmbed("Mensagem enviada com sucesso!")] });
+
+      } catch (error) {
+          console.error("Erro no comando say:", error);
+          await interaction.editReply({ 
+              embeds: [createErrorEmbed(`Erro ao processar a mensagem ou ler o JSON. Verifique a estrutura do arquivo. Erro: \`${error.message}\``)] 
+          });
       }
-
-      const cleanText = text.replace(/`{3,}/g, '').replace(/\*\*(.*?)\*\*/g, '$1');
-
-      await interaction.channel.send({ content: cleanText });
-      await interaction.reply({ content: "Mensagem enviada com sucesso!", ephemeral: true });
     }
 
     // COINFLIP
     if (sub === "coinflip") {
       const result = Math.random() < 0.5 ? "Cara" : "Coroa";
-      
+
       await interaction.reply({ 
         embeds: [createEmbed({
           title: "🪙 Cara ou Coroa",
@@ -228,7 +277,7 @@ module.exports = {
     // VELHA
     if (sub === "velha") {
       const opponent = interaction.options.getUser("oponente");
-      
+
       if (opponent.id === interaction.user.id) {
         return interaction.reply({ 
           embeds: [createErrorEmbed("Você não pode jogar contra si mesmo!")],
@@ -244,7 +293,7 @@ module.exports = {
       }
 
       const gameId = `${interaction.user.id}_${opponent.id}`;
-      
+
       if (velhaGames.has(gameId)) {
         return interaction.reply({ 
           embeds: [createErrorEmbed("Você já tem um jogo em andamento com este usuário!")],
@@ -268,7 +317,7 @@ module.exports = {
       });
 
       const rows = getBoardButtons(board);
-      
+
       const message = await interaction.reply({ 
         embeds: [embed], 
         components: rows,
@@ -355,7 +404,6 @@ module.exports = {
         ]
       });
 
-      // Criar menu de seleção de animais
       const animalSelect = new StringSelectMenuBuilder()
         .setCustomId('bicho_animal_select')
         .setPlaceholder('Escolha um animal para apostar')
@@ -381,11 +429,10 @@ module.exports = {
     if (customId.startsWith('velha_')) {
       const index = parseInt(customId.split('_')[1]);
       const userId = interaction.user.id;
-      
-      // Encontrar o jogo do usuário
+
       let game = null;
       let gameId = null;
-      
+
       for (const [key, value] of velhaGames.entries()) {
         if (value.players.includes(userId)) {
           game = value;
@@ -402,10 +449,8 @@ module.exports = {
         return interaction.reply({ content: "Esta posição já está ocupada!", ephemeral: true });
       }
 
-      // Fazer jogada
       game.board[index] = game.currentPlayer === 0 ? X_EMOJI : O_EMOJI;
-      
-      // Verificar vencedor
+
       const winner = checkWinner(game.board);
       const isFull = isBoardFull(game.board);
 
@@ -421,10 +466,9 @@ module.exports = {
         await interaction.update({ embeds: [embed], components: getBoardButtons(game.board, true) });
         velhaGames.delete(gameId);
       } else {
-        // Próximo jogador
         game.currentPlayer = 1 - game.currentPlayer;
         const nextPlayer = interaction.client.users.cache.get(game.players[game.currentPlayer]);
-        
+
         const embed = createEmbed({
           title: "🎮 Jogo da Velha",
           description: `**${interaction.client.users.cache.get(game.players[0])?.username}** ❌ vs **${interaction.client.users.cache.get(game.players[1])?.username}** ⭕\n\nÉ a vez de **${nextPlayer?.username}**!`,
@@ -439,7 +483,7 @@ module.exports = {
     if (customId.startsWith('roleta_bet_')) {
       const bet = parseInt(customId.split('_')[2]);
       const { economy: eco } = interaction.client.services;
-      
+
       await runRoletaGame(interaction, bet, eco, interaction.guildId, interaction.user.id);
     }
   },
@@ -447,16 +491,14 @@ module.exports = {
   async handleSelectMenu(interaction) {
     const customId = interaction.customId;
 
-    // Handler para Bicho
     if (customId === 'bicho_animal_select') {
       const animalId = parseInt(interaction.values[0]);
       const animal = animals.find(a => a.id === animalId);
-      
+
       if (!animal) {
         return interaction.reply({ embeds: [createErrorEmbed("Animal inválido!")], ephemeral: true });
       }
 
-      // Criar modal para valor da aposta
       const modal = new ModalBuilder()
         .setCustomId(`bicho_bet_${animalId}`)
         .setTitle(`Apostar em ${animal.name}`)
@@ -478,19 +520,18 @@ module.exports = {
   async handleModal(interaction) {
     const customId = interaction.customId;
 
-    // Handler para Bicho
     if (customId.startsWith('bicho_bet_')) {
       const animalId = parseInt(customId.split('_')[2]);
       const valor = parseInt(interaction.fields.getTextInputValue('valor'));
       const { economy: eco } = interaction.client.services;
-      
+
       if (!eco || !valor || valor <= 0) {
         return interaction.reply({ embeds: [createErrorEmbed("Valor inválido!")], ephemeral: true });
       }
 
       const guildId = interaction.guildId;
       const userId = interaction.user.id;
-      
+
       try {
         const balance = await eco.getBalance(guildId, userId);
         if (balance.coins < valor) {
@@ -498,16 +539,15 @@ module.exports = {
         }
 
         await eco.removeCoins(guildId, userId, valor);
-        
-        // Simular sorteio (em um sistema real, seria agendado)
+
         const sorteio = Math.floor(Math.random() * 10000);
         const animalSorteado = animals[Math.floor(Math.random() * animals.length)];
         const grupoSorteado = getGroup(sorteio);
         const grupoAnimal = getGroup(animalId * 4);
-        
+
         let ganhou = false;
         let multiplicador = 0;
-        
+
         if (animalSorteado.id === animalId) {
           ganhou = true;
           multiplicador = 18;
@@ -519,13 +559,13 @@ module.exports = {
         if (ganhou) {
           const premio = Math.floor(valor * multiplicador);
           await eco.addCoins(guildId, userId, premio);
-          
+
           const embed = createSuccessEmbed(
             `🎉 Você ganhou **${premio} moedas**!\n\n` +
             `🎯 Sorteio: ${animalSorteado.emoji} ${animalSorteado.name}\n` +
             `💰 Multiplicador: ${multiplicador}x`
           );
-          
+
           await interaction.reply({ embeds: [embed] });
         } else {
           const embed = createErrorEmbed(
@@ -533,7 +573,7 @@ module.exports = {
             `🎯 Sorteio: ${animalSorteado.emoji} ${animalSorteado.name}\n` +
             `💸 Perda: ${valor} moedas`
           );
-          
+
           await interaction.reply({ embeds: [embed] });
         }
       } catch (error) {
