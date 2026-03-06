@@ -28,6 +28,10 @@ module.exports = {
       sub.setName("info")
         .setDescription("consulta os detalhes de uma parceria especifica")
         .addStringOption(o => o.setName("id").setDescription("ID da parceria (ex: PARC12345)").setRequired(true))
+    )
+    .addSubcommand(sub =>
+      sub.setName("clear")
+        .setDescription("apaga TODAS as parcerias do banco de dados (Reset)")
     ),
 
   async execute(interaction) {
@@ -92,6 +96,24 @@ module.exports = {
       }
 
       return interaction.reply({ embeds: [embed], ephemeral: true });
+    }
+
+    if (sub === "clear") {
+      await interaction.deferReply({ ephemeral: true });
+
+      const allPartners = await partnersStore.load();
+      const keys = Object.keys(allPartners);
+
+      if (keys.length === 0) {
+        return interaction.editReply({ content: "❌ O banco de dados de parcerias já está vazio!" });
+      }
+
+      // Varre o banco de dados e apaga todas as chaves
+      for (const key of keys) {
+        await partnersStore.update(key, () => null);
+      }
+
+      return interaction.editReply({ content: `✅ Limpeza concluída com sucesso! **${keys.length}** parcerias foram permanentemente apagadas do banco de dados.` });
     }
   }
 };
