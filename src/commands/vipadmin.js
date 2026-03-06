@@ -16,39 +16,56 @@ module.exports = {
     .setDescription("👑 Painel Supremo de Administração VIP e Família")
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     
-    // INFRAESTRUTURA
-    .addSubcommand(s => s.setName("setup").setDescription("Configura a estrutura técnica do VIP")
-        .addChannelOption(o => o.setName("logs").setDescription("Canal de auditoria").setRequired(true))
-        .addChannelOption(o => o.setName("categoria").setDescription("Categoria para canais VIP").addChannelTypes(ChannelType.GuildCategory).setRequired(true))
-        .addRoleOption(o => o.setName("separador").setDescription("Cargo que fica ACIMA dos personalizados").setRequired(true))
-        .addRoleOption(o => o.setName("fantasma").setDescription("Cargo Fantasma (Vigilante)").setRequired(false)))
-
-    // GESTÃO DE TIERS
-    .addSubcommand(s => s.setName("tier").setDescription("Define benefícios de um cargo")
-        .addStringOption(o => o.setName("id").setDescription("ID (ex: supremo, diamante)").setRequired(true))
-        .addRoleOption(o => o.setName("cargo").setDescription("Cargo correspondente").setRequired(true)))
-
-    // CONTROLE DE MEMBROS
-    .addSubcommand(s => s.setName("add").setDescription("Ativa o VIP para um usuário")
-        .addUserOption(o => o.setName("membro").setDescription("Destinatário").setRequired(true))
-        .addStringOption(o => o.setName("tier").setDescription("ID do Tier").setRequired(true))
-        .addIntegerOption(o => o.setName("dias").setDescription("Tempo em dias").setRequired(true)))
-
-    .addSubcommand(s => s.setName("remove").setDescription("Remove o VIP de um usuário imediatamente")
-        .addUserOption(o => o.setName("membro").setDescription("Usuário a ser removido").setRequired(true)))
-
-    // LISTAGEM E MONITORAMENTO
-    .addSubcommand(s => s.setName("list").setDescription("Lista Tiers configurados e Membros VIP ativos"))
-
-    // GESTÃO DE FAMÍLIA (ADMIN FORCE)
-    .addSubcommandGroup(g => g.setName("family").setDescription("Comandos administrativos para clãs")
-        .addSubcommand(s => s.setName("info").setDescription("Detalhes técnicos de uma família")
-            .addUserOption(o => o.setName("dono").setDescription("Dono da família").setRequired(true)))
-        .addSubcommand(s => s.setName("delete").setDescription("Apaga uma família e limpa cargos/canais")
-            .addUserOption(o => o.setName("dono").setDescription("Dono da família").setRequired(true)))
-        .addSubcommand(s => s.setName("limit").setDescription("Altera o limite de vagas na força")
-            .addUserOption(o => o.setName("dono").setDescription("Dono da família").setRequired(true))
-            .addIntegerOption(o => o.setName("vagas").setDescription("Novo limite").setRequired(true)))),
+    .addSubcommandGroup((group) =>
+      group.setName("infra").setDescription("Infraestrutura VIP")
+        .addSubcommand((sub) =>
+          sub.setName("setup").setDescription("Configura a estrutura técnica do VIP")
+            .addChannelOption((opt) => opt.setName("logs").setDescription("Canal de auditoria").setRequired(true))
+            .addChannelOption((opt) => opt.setName("categoria").setDescription("Categoria para canais VIP").addChannelTypes(ChannelType.GuildCategory).setRequired(true))
+            .addRoleOption((opt) => opt.setName("separador").setDescription("Cargo que fica ACIMA dos personalizados").setRequired(true))
+            .addRoleOption((opt) => opt.setName("fantasma").setDescription("Cargo Fantasma (Vigilante)").setRequired(false))
+        )
+    )
+    .addSubcommandGroup((group) =>
+      group.setName("tiers").setDescription("Gestão de Tiers")
+        .addSubcommand((sub) =>
+          sub.setName("tier").setDescription("Define benefícios de um cargo")
+            .addStringOption((opt) => opt.setName("id").setDescription("ID (ex: supremo, diamante)").setRequired(true))
+            .addRoleOption((opt) => opt.setName("cargo").setDescription("Cargo correspondente").setRequired(true))
+        )
+    )
+    .addSubcommandGroup((group) =>
+      group.setName("membros").setDescription("Controle de Membros")
+        .addSubcommand((sub) =>
+          sub.setName("add").setDescription("Ativa o VIP para um usuário")
+            .addUserOption((opt) => opt.setName("membro").setDescription("Destinatário").setRequired(true))
+            .addStringOption((opt) => opt.setName("tier").setDescription("ID do Tier").setRequired(true))
+            .addIntegerOption((opt) => opt.setName("dias").setDescription("Tempo em dias").setRequired(true))
+        )
+        .addSubcommand((sub) =>
+          sub.setName("remove").setDescription("Remove o VIP de um usuário imediatamente")
+            .addUserOption((opt) => opt.setName("membro").setDescription("Usuário a ser removido").setRequired(true))
+        )
+        .addSubcommand((sub) =>
+          sub.setName("list").setDescription("Lista Tiers configurados e Membros VIP ativos")
+        )
+    )
+    .addSubcommandGroup((group) =>
+      group.setName("family").setDescription("Gestão de Família (Admin Force)")
+        .addSubcommand((sub) =>
+          sub.setName("info").setDescription("Detalhes técnicos de uma família")
+            .addUserOption((opt) => opt.setName("dono").setDescription("Dono da família").setRequired(true))
+        )
+        .addSubcommand((sub) =>
+          sub.setName("delete").setDescription("Apaga uma família e limpa cargos/canais")
+            .addUserOption((opt) => opt.setName("dono").setDescription("Dono da família").setRequired(true))
+        )
+        .addSubcommand((sub) =>
+          sub.setName("limit").setDescription("Altera o limite de vagas na força")
+            .addUserOption((opt) => opt.setName("dono").setDescription("Dono da família").setRequired(true))
+            .addIntegerOption((opt) => opt.setName("vagas").setDescription("Novo limite").setRequired(true))
+        )
+    ),
 
   async execute(interaction) {
     const { vip: vipService, vipConfig, family: familyService, vipChannel, vipRole } = interaction.client.services;

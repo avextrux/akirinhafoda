@@ -365,7 +365,12 @@ module.exports = {
   data: new SlashCommandBuilder()
     .setName("leaderboard")
     .setDescription("Mostra o ranking dos usuários com mais XP")
-    .addIntegerOption((opt) => opt.setName("pagina").setDescription("Número da página").setMinValue(1).setRequired(false))
+    .addSubcommand((sub) =>
+      sub
+        .setName("ver")
+        .setDescription("Mostra o ranking dos usuários")
+        .addIntegerOption((opt) => opt.setName("pagina").setDescription("Número da página").setMinValue(1).setRequired(false))
+    )
     .addSubcommand((sub) =>
       sub
         .setName("comprar")
