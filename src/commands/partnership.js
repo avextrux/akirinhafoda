@@ -19,13 +19,17 @@ module.exports = {
         .addStringOption(o => o.setName("banner").setDescription("link da imagem opcional"))
     )
     .addSubcommand(sub =>
-      sub.setName("listar").setDescription("lista todas as parcerias ativas")
+      sub.setName("list")
+        .setDescription("lista todas as parcerias ativas")
     ),
 
   async execute(interaction) {
     const sub = interaction.options.getSubcommand();
     const { guildId, user, guild } = interaction;
 
+    // ==========================================
+    // SUBCOMANDO: SOLICITAR
+    // ==========================================
     if (sub === "solicitar") {
       await interaction.deferReply({ ephemeral: true });
 
@@ -39,25 +43,26 @@ module.exports = {
       // Verificação Automática e Definição de Tier
       const conviteInput = interaction.options.getString("convite");
       let inviteData;
+      let tier = "Bronze";
+      let membros = 0;
+
       try {
         inviteData = await interaction.client.fetchInvite(conviteInput);
-        const membros = inviteData.memberCount;
+        membros = inviteData.memberCount;
 
         if (membros < 350) {
           return interaction.editReply({ embeds: [createErrorEmbed(`Seu servidor tem **${membros}** membros. O mínimo para o Tier Bronze é **350**.`)] });
         }
 
         // Define o Tier
-        let tier = "Bronze";
         if (membros >= 1000) tier = "Ouro";
         else if (membros >= 500) tier = "Prata";
 
-        interaction.currentTier = tier;
-        interaction.memberCount = membros;
       } catch (error) {
-        return interaction.editReply({ embeds: [createErrorEmbed("Link de convite inválido ou expirado.")] });
+        return interaction.editReply({ embeds: [createErrorEmbed("Link de convite inválido ou expirado. Certifique-se de que é um link válido do Discord.")] });
       }
 
+      // Lógica de Cooldown (24h)
       const allPartners = await partnersStore.load();
       const userRequests = Object.values(allPartners).filter(p => p.requesterId === user.id);
       if (userRequests.length > 0) {
@@ -68,14 +73,17 @@ module.exports = {
         }
       }
 
+      // Remoção de pings da descrição logo na entrada
+      const cleanDescEntrada = interaction.options.getString("descricao").replace(/@/g, "");
+
       const data = {
         id: `PARC${Math.floor(Math.random() * 90000) + 10000}`,
         requesterId: user.id,
         serverName: interaction.options.getString("servidor"),
         inviteLink: conviteInput,
-        description: interaction.options.getString("descricao").replace(/@/g, ""),
-        memberCount: interaction.memberCount,
-        tier: interaction.currentTier,
+        description: cleanDescEntrada,
+        memberCount: membros,
+        tier: tier,
         banner: interaction.options.getString("banner"),
         status: "pending",
         date: new Date().toISOString()
@@ -100,14 +108,51 @@ module.exports = {
         new ButtonBuilder().setCustomId(`partnership_reject_${data.id}`).setLabel("Recusar").setStyle(ButtonStyle.Danger)
       );
 
-      // Puxa a role configurada no partnerconfig para mencionar a staff no log (caso exista)
       const pingStaff = pConfig.staffPingRoleId ? `<@&${pConfig.staffPingRoleId}>` : "";
       
       if (logChan) await logChan.send({ content: pingStaff, embeds: [embedLog], components: [row] });
       return interaction.editReply({ embeds: [createSuccessEmbed(`Solicitação enviada! Detectamos Tier **${data.tier}**.`)] });
     }
+
+    // ==========================================
+    // SUBCOMANDO: LIST (Listagem de parcerias)
+    // ==========================================
+    if (sub === "list") {
+      await interaction.deferReply({ ephemeral: true });
+
+      const allPartners = await partnersStore.load();
+      const activePartners = Object.values(allPartners).filter(p => p.status === "accepted");
+
+      if (activePartners.length === 0) {
+        return interaction.editReply({ embeds: [createErrorEmbed("Não há nenhuma parceria ativa no momento.")] });
+      }
+
+      const embedList = new EmbedBuilder()
+        .setTitle("🤝 Nossas Parcerias Ativas")
+        .setColor(0x2ecc71)
+        .setDescription(`Atualmente temos **${activePartners.length}** parcerias fechadas!`);
+
+      const displayPartners = activePartners.slice(0, 25);
+
+      displayPartners.forEach(p => {
+        embedList.addFields({
+          name: `🔰 ${p.serverName} (${p.tier || "Bronze"})`,
+          value: `👤 Rep: <@${p.requesterId}>\n🔗 [Convite](${p.inviteLink})`,
+          inline: true
+        });
+      });
+
+      if (activePartners.length > 25) {
+        embedList.setFooter({ text: `Mostrando 25 de ${activePartners.length} parcerias ativas.` });
+      }
+
+      return interaction.editReply({ embeds: [embedList] });
+    }
   },
 
+  // ==========================================
+  // BOTÕES (Aprovar / Recusar)
+  // ==========================================
   async handleButton(interaction) {
     const parts = interaction.customId.split("_");
     const action = parts[1];
@@ -158,24 +203,24 @@ module.exports = {
         let finalLink = data.inviteLink.trim();
         if (!finalLink.startsWith('http')) finalLink = `https://${finalLink}`;
 
+        // Limpeza agressiva de qualquer URL na descrição
         const regexLinks = /(https?:\/\/[^\s]+)|([-a-zA-Z0-9@:%._\+~#=]{2,256}\.[a-z]{2,6}\b([-a-zA-Z0-9@:%_\+.~#?&//=]*))/gi;
         const cleanDesc = data.description.replace(regexLinks, "[Link Removido]");
 
-        // POSTAGEM PÚBLICA
+        // POSTAGEM PÚBLICA (Separada)
         const textoFora = `**Servidor:** ${data.serverName}\n**Tier:** ${data.tier}\n**Representante:** <@${data.requesterId}>\n**Responsável:** <@${interaction.user.id}>\n**Ping:** ${pingText}\n**Link:** ${finalLink}`;
-        const embedPost = new EmbedBuilder().setColor(0x2ecc71).setDescription(`--- {☩} NOVA PARCERIA FECHADA! {☩} ---\n\n${cleanDesc}\n\n{☩}----------{🤝}----------{☩}`);
+        const embedPost = new EmbedBuilder().setColor(0x2ecc71).setDescription(`--- {☩} NOVA PARCERIA FECHADA! {☩} ---\n\n${cleanDesc}\n\n{☩}----------multimap 🤝 multimap----------{☩}`);
         if (data.banner?.startsWith("http")) embedPost.setImage(data.banner);
 
         const sentMessage = await targetChan.send({ content: textoFora, embeds: [embedPost] });
 
-        // SALVA NO BANCO
+        // SALVA NO BANCO (Com channelId e messageId para apagar depois)
         await partnersStore.update(id, c => ({ ...c, status: "accepted", processedBy: interaction.user.id, messageId: sentMessage.id, channelId: targetChan.id }));
         await staffStatsStore.update(interaction.user.id, c => ({ ...c, approved: (c?.approved || 0) + 1 }));
 
-        // === NOVO: ENTREGAR CARGO DE RANK AUTOMATICAMENTE ===
+        // ENTREGA DE CARGO AUTOMÁTICA
         const guildConfig = await getGuildConfig(interaction.guildId);
         const ranks = guildConfig?.partnership?.ranks;
-        
         if (ranks) {
           let roleToGiveId = null;
           if (data.tier === "Bronze") roleToGiveId = ranks.bronze;
@@ -184,12 +229,9 @@ module.exports = {
 
           if (roleToGiveId) {
             const member = await interaction.guild.members.fetch(data.requesterId).catch(() => null);
-            if (member) {
-              await member.roles.add(roleToGiveId).catch(() => console.log("Erro ao dar cargo. Verifique as permissões do bot e a hierarquia de cargos."));
-            }
+            if (member) await member.roles.add(roleToGiveId).catch(() => null);
           }
         }
-        // ===================================================
 
         // DM PARA O REPRESENTANTE
         const repUser = await interaction.client.users.fetch(data.requesterId).catch(() => null);
@@ -202,7 +244,15 @@ module.exports = {
           await repUser.send({ embeds: [embedDm] }).catch(() => null);
         }
 
-        await interaction.message.edit({ content: `✅ Aprovada e postada!`, components: [], embeds: [EmbedBuilder.from(interaction.message.embeds[0]).setColor(0x00FF00)] });
+        // ATUALIZA A EMBED DO LOG (Adicionando o Staff que aprovou)
+        const logEmbedAprovada = EmbedBuilder.from(interaction.message.embeds[0])
+          .setColor(0x00FF00)
+          .addFields(
+            { name: "Responsável (Staff)", value: `<@${interaction.user.id}>`, inline: true },
+            { name: "Canal de Postagem", value: `${targetChan}`, inline: true }
+          );
+
+        await interaction.message.edit({ content: `✅ Parceria processada!`, components: [], embeds: [logEmbedAprovada] });
         await mentionInter.update({ content: "🚀 Concluído! Parceria postada e cargo entregue.", components: [] });
 
       } catch (e) {
@@ -211,6 +261,9 @@ module.exports = {
     }
   },
 
+  // ==========================================
+  // MODAL (Motivo da Recusa)
+  // ==========================================
   async handleModal(interaction) {
     const id = interaction.customId.split("_")[3];
     await interaction.deferUpdate();
@@ -218,11 +271,19 @@ module.exports = {
     const partners = await partnersStore.load();
     const data = partners[id];
 
-    await partnersStore.update(id, c => ({ ...c, status: "rejected", reason }));
+    await partnersStore.update(id, c => ({ ...c, status: "rejected", processedBy: interaction.user.id, reason }));
 
     const user = await interaction.client.users.fetch(data.requesterId).catch(() => null);
     if (user) await user.send(`Sua parceria com **${data.serverName}** foi recusada.\n**Motivo:** ${reason}`).catch(() => null);
 
-    return interaction.editReply({ content: `❌ Recusada por <@${interaction.user.id}>`, components: [], embeds: [EmbedBuilder.from(interaction.message.embeds[0]).setColor(0xFF0000).addFields({ name: "Motivo", value: reason })] });
+    // ATUALIZA A EMBED DO LOG (Adicionando o Staff que recusou e o motivo)
+    const logEmbedRecusada = EmbedBuilder.from(interaction.message.embeds[0])
+      .setColor(0xFF0000)
+      .addFields(
+        { name: "Responsável (Staff)", value: `<@${interaction.user.id}>`, inline: true },
+        { name: "Motivo da Recusa", value: reason, inline: false }
+      );
+
+    return interaction.editReply({ content: `❌ Parceria recusada.`, components: [], embeds: [logEmbedRecusada] });
   }
 };
