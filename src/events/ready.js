@@ -18,9 +18,19 @@ module.exports = {
   execute(readyClient, client) {
     logger.info({ user: readyClient.user.tag }, "Bot online");
 
-    if (client?.services?.presence?.applyPresence) {
-      client.services.presence.applyPresence(readyClient).catch(() => {});
+    // --- BLOCO DE PRESENÇA ATUALIZADO ---
+    const presenceService = client?.services?.presence;
+    if (presenceService) {
+      // Aplica o presence fixo salvo
+      if (presenceService.applyPresence) {
+        presenceService.applyPresence(readyClient).catch(() => {});
+      }
+      // Inicia a rotação aleatória (Novo)
+      if (presenceService.startRotation) {
+        presenceService.startRotation(readyClient);
+      }
     }
+    // ------------------------------------
 
     if (client?.services?.vipExpiry?.start) {
       client.services.vipExpiry.start({ intervalMs: 5 * 60 * 1000 });
@@ -41,7 +51,7 @@ module.exports = {
         const levelsCommand = client.commands.get("rank");
         const economyService = client.services?.economy;
         if (!levelsCommand || !economyService) return;
-        
+
         try {
             for (const guild of client.guilds.cache.values()) {
                 for (const state of guild.voiceStates.cache.values()) {
@@ -49,7 +59,7 @@ module.exports = {
                     if (!member || member.user.bot) continue;
                     if (state.mute || state.deaf) continue;
                     if (!state.channelId) continue;
-                    
+
                     const { subiuNivel, novoNivel, nivelAnterior } = await levelsCommand.addXpForVoiceTick(member, 1);
                     if (subiuNivel && levelsCommand.applyLevelRoles) {
                       await levelsCommand.applyLevelRoles(member, nivelAnterior, novoNivel);
@@ -63,9 +73,9 @@ module.exports = {
             logger.error({ err: e }, "Erro no Voice XP");
         }
     }, 60000);
-    
+
     logger.info("Voice XP timer started");
   },
-  
+
   cleanup: stopVoiceXpTimer
 };
