@@ -103,12 +103,20 @@ module.exports = {
       if (existingCouple) return interaction.reply({ embeds: [createErrorEmbed("Esta pessoa já é sua dama.")], ephemeral: true });
 
       await couplesStore.update(`${userId}_${target.id}`, () => ({ manId: userId, womanId: target.id, guildId, createdAt: Date.now() }));
-      return interaction.reply({ embeds: [createSuccessEmbed(`**${target.username}** agora é sua primeira dama! 💍`)] });
+
+      // Aplica o cargo de dama se configurado
+      if (config.damaRoleId) {
+        const targetMember = await interaction.guild.members.fetch(target.id).catch(() => null);
+        if (targetMember) await targetMember.roles.add(config.damaRoleId).catch(() => {});
+      }
+
+      return interaction.reply({ embeds: [createSuccessEmbed(`**${target.username}** agora é sua primeira dama! 💍`)], ephemeral: true });
     }
 
     if (sub === "remove") {
       const target = interaction.options.getUser("usuario");
       const currentCouples = await couplesStore.load();
+      const config = await getGuildConfig(guildId);
 
       if (target) {
         const coupleKey = `${userId}_${target.id}`;
@@ -116,15 +124,28 @@ module.exports = {
         if (!couple || couple.manId !== userId) return interaction.reply({ embeds: [createErrorEmbed("Esta pessoa não é sua dama.")], ephemeral: true });
 
         await couplesStore.update(coupleKey, () => null);
-        return interaction.reply({ embeds: [createSuccessEmbed(`**${target.username}** foi removida de suas damas.`)] });
+
+        // Bug fix: remove o cargo de dama do Discord
+        if (config?.damaRoleId) {
+          const targetMember = await interaction.guild.members.fetch(target.id).catch(() => null);
+          if (targetMember) await targetMember.roles.remove(config.damaRoleId).catch(() => {});
+        }
+
+        return interaction.reply({ embeds: [createSuccessEmbed(`**${target.username}** foi removida de suas damas.`)], ephemeral: true });
       } else {
         const userCouples = Object.entries(currentCouples).filter(([_, couple]) => couple.manId === userId);
         if (userCouples.length === 0) return interaction.reply({ embeds: [createErrorEmbed("Você não tem damas para remover.")], ephemeral: true });
 
-        for (const [key] of userCouples) {
+        for (const [key, couple] of userCouples) {
           await couplesStore.update(key, () => null);
+          // Bug fix: remove o cargo de dama de cada uma
+          if (config?.damaRoleId) {
+            const targetMember = await interaction.guild.members.fetch(couple.womanId).catch(() => null);
+            if (targetMember) await targetMember.roles.remove(config.damaRoleId).catch(() => {});
+          }
         }
-        return interaction.reply({ embeds: [createSuccessEmbed(`Todas as suas **${userCouples.length}** dama(s) foram removidas.`)] });
+
+        return interaction.reply({ embeds: [createSuccessEmbed(`Todas as suas **${userCouples.length}** dama(s) foram removidas.`)], ephemeral: true });
       }
     }
   },
@@ -149,7 +170,26 @@ module.exports = {
     }
 
     if (customId === 'dama_cfg:set_roles') {
-        return interaction.reply({ embeds: [createSuccessEmbed("Use comandos para definir os cargos separadamente por enquanto.")], ephemeral: true });
+      const modal = new ModalBuilder()
+        .setCustomId('dama_set_roles_modal')
+        .setTitle('Definir Cargos Base')
+        .addComponents(
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId('damaRoleId')
+              .setLabel('ID do Cargo de Dama')
+              .setStyle(TextInputStyle.Short)
+              .setRequired(true)
+          ),
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId('damaPermRoleId')
+              .setLabel('ID do Cargo base (permissão para usar /dama set)')
+              .setStyle(TextInputStyle.Short)
+              .setRequired(true)
+          )
+        );
+      return interaction.showModal(modal);
     }
   },
 
@@ -176,14 +216,33 @@ module.exports = {
   },
 
   async handleModal(interaction) {
+    if (!interaction.member.permissions.has(PermissionFlagsBits.ManageGuild)) {
+      return interaction.reply({ embeds: [createErrorEmbed("Sem permissão.")], ephemeral: true });
+    }
+
+    const guildId = interaction.guildId;
+
+    if (interaction.customId === 'dama_set_roles_modal') {
+      const damaRoleId = interaction.fields.getTextInputValue('damaRoleId').trim();
+      const damaPermRoleId = interaction.fields.getTextInputValue('damaPermRoleId').trim();
+
+      // Valida se os IDs existem no servidor
+      const damaRole = await interaction.guild.roles.fetch(damaRoleId).catch(() => null);
+      const permRole = await interaction.guild.roles.fetch(damaPermRoleId).catch(() => null);
+
+      if (!damaRole) return interaction.reply({ embeds: [createErrorEmbed(`Cargo de dama com ID \`${damaRoleId}\` não encontrado.`)], ephemeral: true });
+      if (!permRole) return interaction.reply({ embeds: [createErrorEmbed(`Cargo de permissão com ID \`${damaPermRoleId}\` não encontrado.`)], ephemeral: true });
+
+      await setGuildConfig(guildId, { damaRoleId, damaPermRoleId });
+      return interaction.reply({ embeds: [createSuccessEmbed(`✅ Cargos definidos!\n\n🎭 Dama: <@&${damaRoleId}>\n🔑 Permissão: <@&${damaPermRoleId}>`)], ephemeral: true });
+    }
+
     if (interaction.customId.startsWith('dama_vip_config_')) {
       const roleId = interaction.customId.split('_')[3];
       const maxDamas = parseInt(interaction.fields.getTextInputValue('max_damas'));
-      
-      if (!interaction.member.permissions.has(PermissionFlagsBits.ManageGuild)) return;
+
       if (!maxDamas || maxDamas < 1) return interaction.reply({ embeds: [createErrorEmbed("Número inválido.")], ephemeral: true });
 
-      const guildId = interaction.guildId;
       const config = await getGuildConfig(guildId);
       const damaVipRoles = config?.damaVipRoles || {};
       damaVipRoles[roleId] = { maxDamas };

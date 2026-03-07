@@ -55,6 +55,16 @@ module.exports = {
     if (group === "manage") {
       if (sub === "create") {
         const name = interaction.options.getString("nome");
+
+        // Bug fix: verificação real de VIP via vipService
+        const vipService = interaction.client.services?.vip;
+        const tier = vipService ? await vipService.getMemberTier(interaction.member) : null;
+        const tierConfig = tier ? await vipService.getTierConfig(guildId, tier.id) : null;
+        const maxVagasFamilia = tierConfig?.vagas_familia ?? (tier ? 1 : 0);
+        if (!tier || maxVagasFamilia < 1) {
+          return interaction.reply({ embeds: [createErrorEmbed("Apenas membros VIP com permissão de família podem criar famílias!")], ephemeral: true });
+        }
+
         const existingFamily = Object.values(families).find(f => f.ownerId === userId);
         if (existingFamily) {
           return interaction.reply({ embeds: [createErrorEmbed("Você já tem uma família! Use `/family manage delete` para deletá-la primeiro.")], ephemeral: true });
@@ -65,27 +75,53 @@ module.exports = {
           return interaction.reply({ embeds: [createErrorEmbed(`Já existe uma família com o nome **${name}**!`)], ephemeral: true });
         }
 
-        const isVip = true; 
-        if (!isVip) {
-          return interaction.reply({ embeds: [createErrorEmbed("Apenas membros VIP podem criar famílias!")], ephemeral: true });
-        }
+        await interaction.deferReply();
+
+        const gConfig = vipService.getGuildConfig(guildId);
+        const familyCategoryId = gConfig?.familyCategoryId || null;
 
         const familyId = `family_${Date.now()}_${userId}`;
+
+        // Cria cargo da família no Discord
+        let roleId = null;
+        try {
+          const role = await interaction.guild.roles.create({ name: `🏠 ${name}`, reason: "Criação de família VIP" });
+          roleId = role.id;
+          await interaction.member.roles.add(role).catch(() => {});
+        } catch (e) {}
+
+        // Cria canal de texto da família
+        let channelId = null;
+        try {
+          const ch = await interaction.guild.channels.create({
+            name: `🏠-${name.toLowerCase().replace(/\s+/g, "-")}`,
+            type: 0, // GuildText
+            parent: familyCategoryId,
+            permissionOverwrites: [
+              { id: interaction.guild.id, deny: ["ViewChannel"] },
+              ...(roleId ? [{ id: roleId, allow: ["ViewChannel", "SendMessages", "ReadMessageHistory"] }] : []),
+              { id: interaction.client.user.id, allow: ["ViewChannel", "ManageChannels"] }
+            ]
+          });
+          channelId = ch.id;
+        } catch (e) {}
+
         const newFamily = {
           id: familyId,
-          name: name,
+          name,
           ownerId: userId,
           members: [userId],
           admins: [userId],
-          maxMembers: 10,
+          maxMembers: maxVagasFamilia,
           createdAt: Date.now(),
-          roleId: null,
-          channelId: null
+          roleId,
+          channelId,
+          bankBalance: 0
         };
 
         await familyStore.update(familyId, () => newFamily);
 
-        return interaction.reply({ embeds: [createSuccessEmbed(`✅ Família **${name}** criada com sucesso!\n\n👑 Dono: <@${userId}>\n👥 Membros: 1/10\n\nUse \`/family config\` para personalizar sua família.`)] });
+        return interaction.editReply({ embeds: [createSuccessEmbed(`✅ Família **${name}** criada com sucesso!\n\n👑 Dono: <@${userId}>\n👥 Membros: 1/${maxVagasFamilia}\n\nUse \`/family config\` para personalizar sua família.`)] });
       }
 
       if (sub === "delete") {
@@ -94,25 +130,28 @@ module.exports = {
           return interaction.reply({ embeds: [createErrorEmbed("Você não tem uma família para deletar!")], ephemeral: true });
         }
 
+        await interaction.deferReply({ ephemeral: true });
+
+        // Remove cargo de todos os membros e deleta o cargo
         if (family.roleId) {
           for (const memberId of family.members) {
             try {
-              const member = await interaction.guild.members.fetch(memberId);
-              await member.roles.remove(family.roleId);
-            } catch (error) {}
+              const member = await interaction.guild.members.fetch(memberId).catch(() => null);
+              if (member) await member.roles.remove(family.roleId).catch(() => {});
+            } catch (e) {}
           }
+          const role = await interaction.guild.roles.fetch(family.roleId).catch(() => null);
+          if (role) await role.delete().catch(() => {});
         }
 
         if (family.channelId) {
-          try {
-            const channel = await interaction.guild.channels.fetch(family.channelId);
-            if (channel) await channel.delete();
-          } catch (error) {}
+          const channel = await interaction.guild.channels.fetch(family.channelId).catch(() => null);
+          if (channel) await channel.delete().catch(() => {});
         }
 
         await familyStore.update(family.id, () => null);
 
-        return interaction.reply({ embeds: [createSuccessEmbed(`✅ Família **${family.name}** deletada com sucesso!`)] });
+        return interaction.editReply({ embeds: [createSuccessEmbed(`✅ Família **${family.name}** deletada com sucesso!`)] });
       }
 
       if (sub === "info") {
@@ -158,9 +197,9 @@ module.exports = {
 
         if (family.roleId) {
           try {
-            const member = await interaction.guild.members.fetch(userId);
-            await member.roles.remove(family.roleId);
-          } catch (error) {}
+            const member = await interaction.guild.members.fetch(userId).catch(() => null);
+            if (member) await member.roles.remove(family.roleId).catch(() => {});
+          } catch (e) {}
         }
 
         return interaction.reply({ embeds: [createSuccessEmbed(`✅ Você saiu da família **${family.name}**!`)] });
@@ -179,9 +218,9 @@ module.exports = {
 
         if (family.roleId) {
           try {
-            const member = await interaction.guild.members.fetch(targetUser.id);
-            await member.roles.add(family.roleId);
-          } catch (error) {}
+            const member = await interaction.guild.members.fetch(targetUser.id).catch(() => null);
+            if (member) await member.roles.add(family.roleId).catch(() => {});
+          } catch (e) {}
         }
 
         return interaction.reply({ embeds: [createSuccessEmbed(`✅ **${targetUser.username}** foi convidado para **${family.name}**!\n\n👥 Membros: ${family.members.length + 1}/${family.maxMembers}`)] });
@@ -203,9 +242,9 @@ module.exports = {
 
         if (family.roleId) {
           try {
-            const member = await interaction.guild.members.fetch(targetUser.id);
-            await member.roles.remove(family.roleId);
-          } catch (error) {}
+            const member = await interaction.guild.members.fetch(targetUser.id).catch(() => null);
+            if (member) await member.roles.remove(family.roleId).catch(() => {});
+          } catch (e) {}
         }
 
         return interaction.reply({ embeds: [createSuccessEmbed(`✅ **${targetUser.username}** foi removido de **${family.name}**!`)] });
@@ -248,6 +287,17 @@ module.exports = {
         if (nameExists) return interaction.reply({ embeds: [createErrorEmbed(`Já existe uma família com o nome **${newName}**!`)], ephemeral: true });
 
         await familyStore.update(family.id, () => ({ ...family, name: newName }));
+
+        // Bug fix: renomeia o cargo e canal no Discord também
+        if (family.roleId) {
+          const role = await interaction.guild.roles.fetch(family.roleId).catch(() => null);
+          if (role) await role.setName(`🏠 ${newName}`).catch(() => {});
+        }
+        if (family.channelId) {
+          const channel = await interaction.guild.channels.fetch(family.channelId).catch(() => null);
+          if (channel) await channel.setName(`🏠-${newName.toLowerCase().replace(/\s+/g, "-")}`).catch(() => {});
+        }
+
         return interaction.reply({ embeds: [createSuccessEmbed(`✅ Família renomeada para **${newName}**!`)] });
       }
 
@@ -255,7 +305,14 @@ module.exports = {
         const color = interaction.options.getString("cor");
         if (!/^#[0-9A-F]{6}$/i.test(color)) return interaction.reply({ embeds: [createErrorEmbed("Cor inválida! Use formato hex: #FF0000")], ephemeral: true });
 
-        await familyStore.update(family.id, () => ({ ...family, color: color }));
+        await familyStore.update(family.id, () => ({ ...family, color }));
+
+        // Bug fix: aplica a cor no cargo do Discord também
+        if (family.roleId) {
+          const role = await interaction.guild.roles.fetch(family.roleId).catch(() => null);
+          if (role) await role.setColor(parseInt(color.replace("#", ""), 16)).catch(() => {});
+        }
+
         return interaction.reply({ embeds: [createSuccessEmbed(`✅ Cor da família alterada para **${color}**!`)] });
       }
 
@@ -332,9 +389,10 @@ module.exports = {
         if (userBalance.coins < upgradeCost) return interaction.reply({ embeds: [createErrorEmbed(`Você precisa de **${upgradeCost}** moedas! Saldo atual: **${userBalance.coins}**`)], ephemeral: true });
 
         await economyService.removeCoins(guildId, userId, upgradeCost);
-        await familyStore.update(family.id, () => ({ ...family, maxMembers: family.maxMembers + 1 }));
+        const newMax = family.maxMembers + 1;
+        await familyStore.update(family.id, () => ({ ...family, maxMembers: newMax }));
 
-        return interaction.reply({ embeds: [createSuccessEmbed(`✅ Slot extra comprado!\n\n💸 Custo: **${upgradeCost}** moedas\n👥 Novo limite: **${family.maxMembers + 1}** membros`)] });
+        return interaction.reply({ embeds: [createSuccessEmbed(`✅ Slot extra comprado!\n\n💸 Custo: **${upgradeCost}** moedas\n👥 Novo limite: **${newMax}** membros`)] });
       }
 
       if (sub === "panel") {
