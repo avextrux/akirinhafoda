@@ -1,53 +1,131 @@
+// ============================================================
+//  vipRoleManager.js  —  Refatorado
+//  Novidades:
+//   • Posiciona o cargo pessoal abaixo do vipRoleSeparatorId
+//     (lê de vipService.getGuildConfig em vez de separatorId legado)
+//   • Entrega o cargo do Tier posicionado abaixo do separador VIP
+//     via assignTierRole / removeTierRole
+// ============================================================
+
 module.exports = {
-  createVipRoleManager({ client, vipService }) {
-    return {
-      async updatePersonalRole(userId, { roleName, roleColor }, { guildId }) {
-        const guild = await client.guilds.fetch(guildId).catch(() => null);
-        if (!guild) return { ok: false };
-        const member = await guild.members.fetch(userId).catch(() => null);
-        if (!member) return { ok: false };
-        const tier = await vipService.getMemberTier(member);
+  createVipRoleManager({ client, vipService, logger }) {
+    // ---------------------------------------------------------
+    //  Cargo personalizado do usuário (/myvip role create)
+    // ---------------------------------------------------------
+    async function updatePersonalRole(userId, { roleName, roleColor }, { guildId }) {
+      const guild = await client.guilds.fetch(guildId).catch(() => null);
+      if (!guild) return { ok: false };
 
-        if (!tier?.hasCustomRole) return { ok: false };
+      const member = await guild.members.fetch(userId).catch(() => null);
+      if (!member) return { ok: false };
 
-        const settings = vipService.getSettings(guildId, userId);
-        const gConf = vipService.getGuildConfig(guildId);
-        let role = settings.roleId ? await guild.roles.fetch(settings.roleId).catch(() => null) : null;
+      const tier = await vipService.getMemberTier(member);
+      if (!tier?.hasCustomRole) return { ok: false };
 
-        // Converte cor hex string (#ff0000) para número inteiro
-        const parsedColor = roleColor
-          ? (typeof roleColor === "string" ? parseInt(roleColor.replace("#", ""), 16) : roleColor)
-          : 0;
+      const settings = vipService.getSettings(guildId, userId);
+      const gConf    = vipService.getGuildConfig(guildId);
 
-        if (!role) {
-          role = await guild.roles.create({
-            name: roleName || `VIP | ${member.user.username}`,
-            color: parsedColor
-          });
-          if (gConf.separatorId) {
-            const sep = await guild.roles.fetch(gConf.separatorId).catch(() => null);
-            if (sep) await role.setPosition(sep.position - 1).catch(() => {});
+      // Usa vipRoleSeparatorId; fallback para separatorId legado
+      const separatorId = gConf.vipRoleSeparatorId || gConf.separatorId;
+
+      let role = settings.roleId
+        ? await guild.roles.fetch(settings.roleId).catch(() => null)
+        : null;
+
+      const parsedColor = roleColor
+        ? (typeof roleColor === "string" ? parseInt(roleColor.replace("#", ""), 16) : roleColor)
+        : 0;
+
+      if (!role) {
+        role = await guild.roles.create({
+          name:   roleName || `VIP | ${member.user.username}`,
+          color:  parsedColor,
+          reason: "Cargo personalizado VIP criado",
+        });
+
+        if (separatorId) {
+          const sep = await guild.roles.fetch(separatorId).catch(() => null);
+          if (sep) {
+            await role.setPosition(sep.position - 1).catch((err) =>
+              logger?.error?.({ err, roleId: role.id }, "Falha ao posicionar cargo personalizado")
+            );
           }
-        } else {
-          if (roleName) await role.setName(roleName).catch(() => {});
-          if (roleColor) await role.setColor(parsedColor).catch(() => {});
         }
-
-        await member.roles.add(role);
-        await vipService.setSettings(guildId, userId, { roleId: role.id });
-        return { ok: true };
-      },
-
-      async deletePersonalRole(userId, { guildId }) {
-        const guild = await client.guilds.fetch(guildId).catch(() => null);
-        if (!guild) return { ok: false };
-        const settings = vipService.getSettings(guildId, userId);
-        if (settings?.roleId) {
-          const role = await guild.roles.fetch(settings.roleId).catch(() => null);
-          if (role) await role.delete().catch(() => {});
-        }
-        return { ok: true };
+      } else {
+        if (roleName)  await role.setName(roleName).catch(() => {});
+        if (roleColor) await role.setColor(parsedColor).catch(() => {});
       }
+
+      await member.roles.add(role);
+      await vipService.setSettings(guildId, userId, { roleId: role.id });
+      return { ok: true };
+    }
+
+    async function deletePersonalRole(userId, { guildId }) {
+      const guild = await client.guilds.fetch(guildId).catch(() => null);
+      if (!guild) return { ok: false };
+
+      const settings = vipService.getSettings(guildId, userId);
+      if (settings?.roleId) {
+        const role = await guild.roles.fetch(settings.roleId).catch(() => null);
+        if (role) await role.delete("VIP expirado — cargo pessoal removido").catch(() => {});
+      }
+      return { ok: true };
+    }
+
+    // ---------------------------------------------------------
+    //  Cargo do Tier (cargo específico ex: "VIP Imperial")
+    //  Posiciona abaixo do vipRoleSeparatorId ao entregar.
+    // ---------------------------------------------------------
+    async function assignTierRole(userId, tierId, { guildId }) {
+      const guild = await client.guilds.fetch(guildId).catch(() => null);
+      if (!guild) return { ok: false };
+
+      const member = await guild.members.fetch(userId).catch(() => null);
+      if (!member) return { ok: false };
+
+      const tier = await vipService.getTierConfig(guildId, tierId);
+      if (!tier?.roleId) return { ok: false };
+
+      await member.roles.add(tier.roleId).catch((err) =>
+        logger?.error?.({ err, userId, tierId }, "Falha ao adicionar cargo de tier")
+      );
+
+      // Posiciona o cargo do tier abaixo do separador VIP
+      const gConf      = vipService.getGuildConfig(guildId);
+      const separatorId = gConf.vipRoleSeparatorId || gConf.separatorId;
+      if (separatorId) {
+        const sep      = await guild.roles.fetch(separatorId).catch(() => null);
+        const tierRole = await guild.roles.fetch(tier.roleId).catch(() => null);
+        if (sep && tierRole) {
+          await tierRole.setPosition(sep.position - 1).catch(() => {});
+        }
+      }
+
+      return { ok: true };
+    }
+
+    async function removeTierRole(userId, tierId, { guildId }) {
+      const guild = await client.guilds.fetch(guildId).catch(() => null);
+      if (!guild) return { ok: false };
+
+      const member = await guild.members.fetch(userId).catch(() => null);
+      if (!member) return { ok: false };
+
+      const tier = await vipService.getTierConfig(guildId, tierId);
+      if (!tier?.roleId) return { ok: false };
+
+      await member.roles.remove(tier.roleId).catch((err) =>
+        logger?.error?.({ err, userId, tierId }, "Falha ao remover cargo de tier")
+      );
+      return { ok: true };
+    }
+
+    return {
+      updatePersonalRole,
+      deletePersonalRole,
+      assignTierRole,
+      removeTierRole,
     };
-  }
+  },
 };
