@@ -15,15 +15,23 @@ function createVipChannelManager({ client, vipService, logger }) {
     if (!tier) return { ok: false };
 
     const gConfig = vipService.getGuildConfig(guild.id);
+
+    // Bug fix: sem categoria configurada, não é possível criar canais
+    if (!gConfig?.vipCategoryId) {
+      logger?.warn?.({ guildId: guild.id, userId }, "vipCategoryId não configurado — use /vipadmin infra setup");
+      return { ok: false, reason: "Categoria VIP não configurada. Use /vipadmin infra setup." };
+    }
+
     const settings = vipService.getSettings(guild.id, userId) || {};
 
-    const permissionOverwrites = [
+    const channelPerms = [
       { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
       { id: client.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ManageChannels] },
+      // Permissão direta ao usuário (sempre)
       {
-        id: settings.roleId || userId,
+        id: userId,
         allow: [
-          PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect, 
+          PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect,
           PermissionFlagsBits.Speak, PermissionFlagsBits.Stream,
           PermissionFlagsBits.ManageChannels, PermissionFlagsBits.ManageMessages,
           PermissionFlagsBits.SendMessages, PermissionFlagsBits.AttachFiles
@@ -31,14 +39,28 @@ function createVipChannelManager({ client, vipService, logger }) {
       }
     ];
 
+    // Se tem cargo personalizado, dá acesso ao cargo também
+    if (settings.roleId) {
+      channelPerms.push({
+        id: settings.roleId,
+        allow: [
+          PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect,
+          PermissionFlagsBits.Speak, PermissionFlagsBits.Stream,
+          PermissionFlagsBits.SendMessages, PermissionFlagsBits.AttachFiles
+        ]
+      });
+    }
+
     // Lógica Fantasma: Vê a call mas não conecta
     if (gConfig?.cargoFantasmaId) {
-      permissionOverwrites.push({
+      channelPerms.push({
         id: gConfig.cargoFantasmaId,
         allow: [PermissionFlagsBits.ViewChannel],
         deny: [PermissionFlagsBits.Connect]
       });
     }
+
+    const permissionOverwrites = channelPerms;
 
     let textId = settings.textChannelId;
     let voiceId = settings.voiceChannelId;

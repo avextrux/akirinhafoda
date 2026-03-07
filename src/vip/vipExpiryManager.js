@@ -1,6 +1,4 @@
-const { logger } = require("../logger");
-
-function createVipExpiryManager({ client, vipService, vipRoleManager, vipChannelManager, familyService }) {
+function createVipExpiryManager({ client, vipService, vipRoleManager, vipChannelManager, familyService, logger }) {
   async function cleanupVipUser(guild, userId, vipEntry) {
       const guildId = guild.id;
 
@@ -32,7 +30,7 @@ function createVipExpiryManager({ client, vipService, vipRoleManager, vipChannel
         }
 
         if (vipEntry?.tierId) {
-          const tier = await vipService.getTierConfig(guildId, vipEntry.tierId).catch(() => null);
+          const tier = await vipService.getTierConfig(guildId, vipEntry.tierId);
           if (tier?.roleId) {
             await member.roles.remove(tier.roleId).catch(() => {});
           }

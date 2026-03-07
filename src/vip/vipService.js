@@ -33,8 +33,8 @@ function createVipService({ store, logger, configManager, client }) {
         validTiers.push(full);
       }
     }
-    // Ordena pelo preço mais alto
-    return validTiers.sort((a, b) => b.preco_shop - a.preco_shop)[0] || null;
+    // Ordena pelo preço mais alto (trata null/undefined como 0)
+    return validTiers.sort((a, b) => (b.preco_shop ?? 0) - (a.preco_shop ?? 0))[0] || null;
   }
 
   async function addVip(guildId, userId, payload = {}) {
@@ -59,8 +59,6 @@ function createVipService({ store, logger, configManager, client }) {
 
     return entry;
   }
-
-  // ... (Manter funções de Dama/Settings que você já tinha)
 
   async function getVipData(guildId, userId) {
     const entry = state.vips?.[guildId]?.[userId] || null;
@@ -101,7 +99,7 @@ function createVipService({ store, logger, configManager, client }) {
     getTierConfig: (gid, tierId) => configManager.getTierConfig(gid, tierId),
     removeVip: async (gid, uid) => { 
       const removed = state.vips?.[gid]?.[uid];
-      delete state.vips?.[gid]?.[uid]; 
+      if (state.vips?.[gid]) delete state.vips[gid][uid];
       await store.save(state); 
       if (removed) await runHooks("onRemove", { guildId: gid, userId: uid, entry: removed });
       return { removed: !!removed, vip: removed };
