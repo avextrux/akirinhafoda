@@ -10,6 +10,12 @@ const { getGuildConfig, setGuildConfig } = require("../config/guildConfig");
 
 const bumpsStore = createDataStore("serverbumps.json");
 
+function normalizeInviteLink(link) {
+  let normalized = link.trim();
+  if (!normalized.startsWith("http")) normalized = `https://${normalized}`;
+  return normalized;
+}
+
 module.exports = {
   data: new SlashCommandBuilder()
     .setName("serverbpost")
@@ -134,8 +140,7 @@ module.exports = {
       }
 
       if (convite) {
-        let link = convite.trim();
-        if (!link.startsWith("http")) link = `https://${link}`;
+        const link = normalizeInviteLink(convite);
         patch.defaultInvite = link;
         changes.push(`**Convite:** ${link}`);
       }
@@ -213,7 +218,7 @@ module.exports = {
       }
 
       // Dados do bump
-      const descricao = interaction.options.getString("descricao").replace(/@/g, "");
+      const descricao = (interaction.options.getString("descricao") || "").replace(/@/g, "");
       let convite =
         interaction.options.getString("convite") || sbConfig.defaultInvite;
 
@@ -227,7 +232,7 @@ module.exports = {
         });
       }
 
-      if (!convite.startsWith("http")) convite = `https://${convite}`;
+      if (!convite.startsWith("http")) convite = normalizeInviteLink(convite);
 
       // Salvar bump
       const bumpId = `${guildId}_${userId}_${Date.now()}`;
