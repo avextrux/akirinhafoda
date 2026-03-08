@@ -36,7 +36,8 @@ module.exports = {
 
     if (sub === "work") {
         const cooldownTime = 3600000; // 1 hora em milissegundos
-        const lastWork = workCooldowns.get(userId) || 0;
+        const cooldownKey = `${guildId}:${userId}`;
+        const lastWork = workCooldowns.get(cooldownKey) || 0;
         const now = Date.now();
 
         if (now - lastWork < cooldownTime) {
@@ -51,7 +52,7 @@ module.exports = {
         const ganho = Math.floor(Math.random() * 200) + 100;
         
         await eco.addCoins(guildId, userId, ganho);
-        workCooldowns.set(userId, now);
+        workCooldowns.set(cooldownKey, now);
 
         return interaction.reply({ 
             embeds: [createSuccessEmbed(`💼 Você trabalhou duro e ganhou **${ganho} 🪙 moedas**!`)] 
