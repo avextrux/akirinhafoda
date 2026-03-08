@@ -36,6 +36,8 @@ module.exports = {
           });
         }, 20000);
       }
-    } catch (_) {}
+    } catch (err) {
+      console.error("[messageCreate] Erro ao processar XP:", err);
+    }
   },
 };
