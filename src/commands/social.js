@@ -3,6 +3,7 @@ const { createEmbed } = require("../embeds");
 
 // Rastreia quais usuários já curtiram cada post: Map<messageId, Set<userId>>
 const likedByUsers = new Map();
+const MAX_TRACKED_POSTS = 500;
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -115,6 +116,11 @@ module.exports = {
 
         // Inicializa o Set de likes para esta mensagem se não existir
         if (!likedByUsers.has(messageId)) {
+            // Limpa entradas antigas se exceder o limite
+            if (likedByUsers.size >= MAX_TRACKED_POSTS) {
+                const oldestKey = likedByUsers.keys().next().value;
+                likedByUsers.delete(oldestKey);
+            }
             likedByUsers.set(messageId, new Set());
         }
 
