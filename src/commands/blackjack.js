@@ -15,7 +15,7 @@ function createDeck() {
             deck.push({ value, suit, weight });
         }
     }
-    return deck.sort(() => Math.random() - 0.5);
+    return deck.sort(() => Math.random() - 0.5).sort(() => Math.random() - 0.5);
 }
 
 function calculateScore(hand) {
@@ -268,8 +268,7 @@ async function runGame(interaction, bet, eco, guildId, userId) {
                 }
             ],
             thumbnail: isGameOver ? "https://media1.tenor.com/m/Xf7Lp9-3uKAAAAAC/kakegurui-yumeko-jabami.gif" : "https://cdn-icons-png.flaticon.com/512/10603/10603460.png",
-            footer: isGameOver ? { text: "Jogo encerrado" } : { text: "Sua vez! Escolha uma ação:" },
-            footer: { text: "WDA - Todos os direitos reservados" }
+            footer: isGameOver ? { text: "Jogo encerrado • WDA - Todos os direitos reservados" } : { text: "Sua vez! Escolha uma ação: • WDA - Todos os direitos reservados" }
         });
         return embed;
     };
@@ -308,6 +307,7 @@ async function runGame(interaction, bet, eco, guildId, userId) {
         try {
         // --- HIT ---
         if (i.customId === 'bj_hit') {
+            if (deck.length === 0) deck = createDeck();
             playerHand.push(deck.pop());
             playerScore = calculateScore(playerHand);
 
@@ -337,6 +337,7 @@ async function runGame(interaction, bet, eco, guildId, userId) {
             bet *= 2;
             isDoubled = true;
 
+            if (deck.length === 0) deck = createDeck();
             playerHand.push(deck.pop());
             playerScore = calculateScore(playerHand);
 
@@ -370,6 +371,7 @@ async function runGame(interaction, bet, eco, guildId, userId) {
 
     async function dealerTurn(i) {
         while (calculateScore(dealerHand) < 17) {
+            if (deck.length === 0) deck = createDeck();
             dealerHand.push(deck.pop());
         }
         dealerScore = calculateScore(dealerHand);

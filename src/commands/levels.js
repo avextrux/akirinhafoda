@@ -173,7 +173,10 @@ async function applyLevelRoles(member, nivelAnterior, novoNivel) {
     const rolesToRemove = Object.values(config).filter(rId => member.roles.cache.has(rId) && rId !== cargoNovoId);
     if (rolesToRemove.length) await member.roles.remove(rolesToRemove);
     if (cargoNovoId && !member.roles.cache.has(cargoNovoId)) await member.roles.add(cargoNovoId);
-  } catch (err) {}
+  } catch (err) {
+    const { logger } = require("../logger");
+    logger.error({ err, memberId: member.id, guildId: member.guild.id }, "Erro ao aplicar cargos de nível");
+  }
 }
 
 async function addXp(userId, amount = 10) {
@@ -209,7 +212,7 @@ async function addXpForMessage(member) {
 
   let mult = 1;
   if (config.multiplierRoles) {
-      for (const [rId, m] of Object.entries(config.multiplierRoles)) if (member.roles.cache.has(rId)) { mult *= m; break; }
+      for (const [rId, m] of Object.entries(config.multiplierRoles)) if (member.roles.cache.has(rId)) mult = Math.max(mult, Number(m) || 1);
   }
 
   const min = config.xpMsgMin ?? 5;

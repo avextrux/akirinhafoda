@@ -8,14 +8,13 @@ function createLogService({ client }) {
       'ouro': 0xffd700,      // Amarelo/Dourado
       'gold': 0xffd700,      // Amarelo/Dourado
       'diamante': 0x00ffff,  // Ciano
-      'diamond': 0x00ffff,  // Ciano
+      'diamond': 0x00ffff,   // Ciano
       'imperial': 0x9b59b6,  // Roxo
-      'prata': 0xc0c0c0,    // Cinza prateado
+      'prata': 0xc0c0c0,     // Cinza prateado
       'silver': 0xc0c0c0,    // Cinza prateado
-      'bronze': 0xcd7f32,   // Laranja bronze
-      'bronze': 0xcd7f32,   // Laranja bronze
-      'vip': 0x2ecc71,      // Verde padrão
-      'padrão': 0x2ecc71,   // Verde padrão
+      'bronze': 0xcd7f32,    // Laranja bronze
+      'vip': 0x2ecc71,       // Verde padrão
+      'padrão': 0x2ecc71,    // Verde padrão
     };
     
     if (!tierName) return 0x2ecc71; // Verde padrão
@@ -87,10 +86,10 @@ function createLogService({ client }) {
 
     const executorLabel = staffUser ? '🎫 Executor' : '🤖 Executor';
     const executorValue = staffUser
-      ? `${staffUser.tag} (${staffUser.id})`
+      ? `${staffUser.username} (${staffUser.id})`
       : 'Sistema';
     const targetValue = targetUser
-      ? `${targetUser.tag} (${targetUser.id})`
+      ? `${targetUser.username} (${targetUser.id})`
       : 'Desconhecido (N/A)';
 
     const fields = [
@@ -146,8 +145,8 @@ function createLogService({ client }) {
     const embed = createEmbed({
       title: `${isSuccess ? '✅' : '❌'} VIP ${action}`,
       description: isSuccess 
-        ? `VIP **${action}** executado por **${staffUser?.tag || 'Sistema'}** para **${targetUser?.tag || 'Desconhecido'}**.`
-        : `Falha ao executar VIP **${action}** para **${targetUser?.tag || 'Desconhecido'}**.`,
+        ? `VIP **${action}** executado por **${staffUser?.username || 'Sistema'}** para **${targetUser?.username || 'Desconhecido'}**.`
+        : `Falha ao executar VIP **${action}** para **${targetUser?.username || 'Desconhecido'}**.`,
       color: isSuccess ? tierColor : 0xe74c3c,
       fields,
       footer: transactionId ? { text: `Log de Auditoria • ID: ${transactionId}` } : { text: `Log de Auditoria` },
