@@ -212,7 +212,7 @@ module.exports = {
         const speciesRes = await fetch(data.species.url);
         const speciesData = speciesRes.ok ? await speciesRes.json() : null;
 
-        const ptName = speciesData
+        const displayName = speciesData
           ? (speciesData.names.find(n => n.language.name === "ja") || speciesData.names.find(n => n.language.name === "en") || { name: data.name })
           : { name: data.name };
 
@@ -248,10 +248,12 @@ module.exports = {
         const mainType = data.types[0].type.name;
         const color = typeColors[mainType] || 0xFFFFFF;
 
+        const MAX_STAT_BAR_LENGTH = 26;
         const statsText = data.stats.map(s => {
           const name = statNames[s.stat.name] || s.stat.name;
           const val = s.base_stat;
-          const bar = "█".repeat(Math.round(val / 10)) + "░".repeat(Math.max(0, 26 - Math.round(val / 10)));
+          const filled = Math.round(val / 10);
+          const bar = "█".repeat(filled) + "░".repeat(Math.max(0, MAX_STAT_BAR_LENGTH - filled));
           return `**${name}**: ${val} \`${bar}\``;
         }).join("\n");
 
@@ -265,7 +267,7 @@ module.exports = {
           || null;
 
         const embed = createEmbed({
-          title: `#${data.id} — ${data.name.charAt(0).toUpperCase() + data.name.slice(1)} (${ptName.name})`,
+          title: `#${data.id} — ${data.name.charAt(0).toUpperCase() + data.name.slice(1)} (${displayName.name})`,
           description: `*${description}*`,
           color,
           thumbnail: sprite,
@@ -310,6 +312,7 @@ module.exports = {
       const user1 = interaction.options.getUser("usuario1");
       const user2 = interaction.options.getUser("usuario2");
 
+      // Deterministic hash (djb2) of sorted user IDs ensures the same pair always gets the same result
       const ids = [user1.id, user2.id].sort();
       const seed = ids.join("");
       let hash = 0;
