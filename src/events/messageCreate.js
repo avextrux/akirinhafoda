@@ -1,4 +1,5 @@
 const { Events } = require("discord.js");
+const { logger } = require("../logger");
 
 module.exports = {
   name: Events.MessageCreate,
@@ -37,7 +38,7 @@ module.exports = {
         }, 20000);
       }
     } catch (err) {
-      console.error("[messageCreate] Erro ao processar XP:", err);
+      logger.error({ err }, "Erro ao processar XP no messageCreate");
     }
   },
 };
